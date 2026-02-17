@@ -36,7 +36,7 @@
       font-family: 'DM Sans', sans-serif;
       background: var(--navy-deepest);
       color: var(--silver-pale);
-      min-height: 100vh;
+      min-height: 900px;
       overflow-x: hidden;
     }
 
