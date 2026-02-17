@@ -782,7 +782,7 @@ html = f"""<!DOCTYPE html>
 
   // ── State ──────────────────────────────────────────────────────────────────
   let bankroll  = PYTHON_BANKROLL;
-  let threshold = 50;
+  let threshold = 40;
   let allSets   = PYTHON_SETS;
 
   // ── Boot ───────────────────────────────────────────────────────────────────
