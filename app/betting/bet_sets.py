@@ -5,7 +5,7 @@ from models.poisson import score_matrix
 MIN_SINGLE_PROB = 0.60   # FIX 1: was 0.80 — far too strict, filtered out almost
                           # every real bet. Over 0.5 Goals is ~95%+ but other
                           # markets like BTTS or Home Win rarely clear 80%.
-MIN_SET_PROB    = 0.55   # FIX 2: was 0.70 — three legs at 0.80 each gives
+MIN_SET_PROB    = 0.50   # FIX 2: was 0.70 — three legs at 0.80 each gives
                           # 0.80³ = 0.512, so sets could NEVER reach 0.70.
                           # Lowered to 0.55 so valid combos actually surface.
                           # The dashboard filter (≥70%) is applied in main.py,
