@@ -2,8 +2,8 @@ import itertools
 import streamlit as st
 from models.poisson import score_matrix
 
-MIN_SINGLE_PROB = 0.60
-MIN_SET_PROB    = 0.50
+MIN_SINGLE_PROB = 0.30
+MIN_SET_PROB    = 0.40
 MAX_SETS        = 20
 
 
