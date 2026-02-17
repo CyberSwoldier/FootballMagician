@@ -1,142 +1,140 @@
 import itertools
+import streamlit as st
 from models.poisson import score_matrix
 
-# ── Thresholds ────────────────────────────────────────────────────────────────
-MIN_SINGLE_PROB = 0.60   # FIX 1: was 0.80 — far too strict, filtered out almost
-                          # every real bet. Over 0.5 Goals is ~95%+ but other
-                          # markets like BTTS or Home Win rarely clear 80%.
-MIN_SET_PROB    = 0.50   # FIX 2: was 0.70 — three legs at 0.80 each gives
-                          # 0.80³ = 0.512, so sets could NEVER reach 0.70.
-                          # Lowered to 0.55 so valid combos actually surface.
-                          # The dashboard filter (≥70%) is applied in main.py,
-                          # so you can tighten/loosen there without touching logic.
-
-MAX_SETS        = 20     # Cap to avoid returning thousands of combos
+MIN_SINGLE_PROB = 0.60
+MIN_SET_PROB    = 0.50
+MAX_SETS        = 20
 
 
 def generate_sets(fixtures, model="xG Only"):
-    """
-    Build individual bets from fixture xG data, then combine into 3-leg accas.
 
-    Each bet dict contains:
-        match   str   — "Home vs Away"
-        market  str   — human-readable market name
-        prob    float — true probability (0–1) from Poisson model
-        odds    float — estimated decimal odds (model-derived, not bookmaker)
-
-    Each set dict contains:
-        bets  list[dict] — the 3 individual bets
-        prob  float      — combined probability (product of legs)
-        odds  float      — combined odds (product of legs)
-    """
+    # ── CHECKPOINT 1: Did we receive any fixtures? ────────────────────────────
+    st.write(f"🔍 **[DEBUG 1]** fixtures received: {len(fixtures)} rows")
 
     if fixtures.empty:
+        st.error("❌ fixtures DataFrame is empty — get_upcoming_fixtures() returned nothing.")
         return []
 
+    # ── CHECKPOINT 2: Do the xG columns exist and have real values? ───────────
+    st.write(f"🔍 **[DEBUG 2]** columns present: `{fixtures.columns.tolist()}`")
+
+    for col in ["home_xg", "away_xg", "home", "away"]:
+        if col not in fixtures.columns:
+            st.error(f"❌ Missing column: `{col}` — check get_upcoming_fixtures() and xG enrichment in main.py")
+            return []
+
+    st.dataframe(fixtures[["home", "away", "home_xg", "away_xg"]].head(10))
+
+    # ── CHECKPOINT 3: Walk each fixture and show what the matrix produces ─────
     bets = []
 
-    for _, r in fixtures.iterrows():
+    for idx, r in fixtures.iterrows():
 
-        # FIX 3: Guard against missing / NaN xG values that crash score_matrix
         try:
             home_xg = float(r.home_xg)
             away_xg = float(r.away_xg)
-        except (ValueError, TypeError, AttributeError):
+        except (ValueError, TypeError):
+            st.warning(f"⚠️ Row {idx} ({r.get('home','?')} vs {r.get('away','?')}): "
+                       f"xG values not numeric — home_xg={r.home_xg!r}, away_xg={r.away_xg!r}")
             continue
 
         if home_xg <= 0 or away_xg <= 0:
+            st.warning(f"⚠️ Row {idx} ({r.home} vs {r.away}): "
+                       f"xG is zero or negative — home={home_xg}, away={away_xg}. "
+                       f"get_team_xg() may be returning 0/None.")
             continue
 
-        # FIX 4: Guard against score_matrix returning None or empty
         try:
             matrix = score_matrix(home_xg, away_xg)
-        except Exception:
+        except Exception as e:
+            st.error(f"❌ score_matrix() crashed for {r.home} vs {r.away} "
+                     f"(xG {home_xg}/{away_xg}): {e}")
             continue
 
         if not matrix:
+            st.warning(f"⚠️ score_matrix() returned empty dict for {r.home} vs {r.away}")
             continue
 
-        # ── Market probabilities ──────────────────────────────────────────────
+        # Compute markets
+        over_05            = min(sum(p for (h, a), p in matrix.items() if h + a > 0), 1.0)
+        over_15            = min(sum(p for (h, a), p in matrix.items() if h + a > 1), 1.0)
+        over_25            = min(sum(p for (h, a), p in matrix.items() if h + a > 2), 1.0)
+        under_35           = min(sum(p for (h, a), p in matrix.items() if h + a < 4), 1.0)
+        under_45           = min(sum(p for (h, a), p in matrix.items() if h + a < 5), 1.0)
+        home_win           = min(sum(p for (h, a), p in matrix.items() if h > a), 1.0)
+        draw               = min(sum(p for (h, a), p in matrix.items() if h == a), 1.0)
+        away_win           = min(sum(p for (h, a), p in matrix.items() if h < a), 1.0)
+        double_chance_home = min(home_win + draw, 1.0)
+        double_chance_away = min(away_win + draw, 1.0)
+        btts               = min(sum(p for (h, a), p in matrix.items() if h >= 1 and a >= 1), 1.0)
 
-        over_05   = sum(p for (h, a), p in matrix.items() if h + a > 0)
-        over_15   = sum(p for (h, a), p in matrix.items() if h + a > 1)
-        over_25   = sum(p for (h, a), p in matrix.items() if h + a > 2)
-        under_35  = sum(p for (h, a), p in matrix.items() if h + a < 4)
-        under_45  = sum(p for (h, a), p in matrix.items() if h + a < 5)
-
-        home_win  = sum(p for (h, a), p in matrix.items() if h > a)
-        draw      = sum(p for (h, a), p in matrix.items() if h == a)
-        away_win  = sum(p for (h, a), p in matrix.items() if h < a)
-
-        double_chance_home = home_win + draw   # 1X
-        double_chance_away = away_win + draw   # X2
-
-        # FIX 5: Added BTTS — was completely missing from the original script
-        btts = sum(p for (h, a), p in matrix.items() if h >= 1 and a >= 1)
-
-        # FIX 6: Added Over 1.5 / Over 2.5 / Under 3.5 — common high-prob markets
-        #        that the original script omitted entirely
-
-        match = f"{r.home} vs {r.away}"
-
-        # ── FIX 7: Odds are now derived from the model probability ────────────
-        # Original used hardcoded 1.15/1.18 for everything, which is wrong —
-        # a 95% probability event should have ~1.05 odds, not 1.15.
-        # Formula: fair_odds = 1 / prob, then apply a ~5% bookmaker margin.
-        # This gives realistic odds the dashboard can display meaningfully.
+        # ── CHECKPOINT 4: Show per-fixture market probabilities ───────────────
+        st.write(f"📊 **{r.home} vs {r.away}** (xG: {home_xg:.2f} / {away_xg:.2f})")
+        prob_table = {
+            "Over 0.5 Goals":          f"{over_05*100:.1f}%",
+            "Over 1.5 Goals":          f"{over_15*100:.1f}%",
+            "Over 2.5 Goals":          f"{over_25*100:.1f}%",
+            "Under 3.5 Goals":         f"{under_35*100:.1f}%",
+            "Under 4.5 Goals":         f"{under_45*100:.1f}%",
+            "Both Teams To Score":     f"{btts*100:.1f}%",
+            "Double Chance Home (1X)": f"{double_chance_home*100:.1f}%",
+            "Double Chance Away (X2)": f"{double_chance_away*100:.1f}%",
+            "Home Win":                f"{home_win*100:.1f}%",
+            "Away Win":                f"{away_win*100:.1f}%",
+            "Draw":                    f"{draw*100:.1f}%",
+        }
+        st.json(prob_table)
 
         def fair_odds(prob: float, margin: float = 0.05) -> float:
-            """Convert true probability to decimal odds with a margin."""
-            if prob <= 0:
-                return 1.01
-            return round((1 / prob) * (1 - margin), 3)
+            return round((1 / prob) * (1 - margin), 3) if prob > 0 else 1.01
 
         markets = [
-            ("Over 0.5 Goals",            over_05),
-            ("Over 1.5 Goals",            over_15),
-            ("Over 2.5 Goals",            over_25),
-            ("Under 3.5 Goals",           under_35),
-            ("Under 4.5 Goals",           under_45),
-            ("Both Teams To Score",       btts),
-            ("Double Chance Home (1X)",   double_chance_home),
-            ("Double Chance Away (X2)",   double_chance_away),
-            ("Home Win",                  home_win),
-            ("Away Win",                  away_win),
-            ("Draw",                      draw),
+            ("Over 0.5 Goals",           over_05),
+            ("Over 1.5 Goals",           over_15),
+            ("Over 2.5 Goals",           over_25),
+            ("Under 3.5 Goals",          under_35),
+            ("Under 4.5 Goals",          under_45),
+            ("Both Teams To Score",      btts),
+            ("Double Chance Home (1X)",  double_chance_home),
+            ("Double Chance Away (X2)",  double_chance_away),
+            ("Home Win",                 home_win),
+            ("Away Win",                 away_win),
+            ("Draw",                     draw),
         ]
 
+        added = 0
         for market, prob in markets:
-            # FIX 8: Clamp probability to [0, 1] — floating-point sums from
-            # the matrix can occasionally creep just above 1.0
-            prob = min(max(float(prob), 0.0), 1.0)
-
             if prob >= MIN_SINGLE_PROB:
                 bets.append({
-                    "match":  match,
+                    "match":  f"{r.home} vs {r.away}",
                     "market": market,
                     "prob":   prob,
                     "odds":   fair_odds(prob),
                 })
+                added += 1
 
-    if not bets:
+        if added == 0:
+            st.warning(f"⚠️ No market cleared {MIN_SINGLE_PROB*100:.0f}% threshold "
+                       f"for {r.home} vs {r.away} — all markets below threshold.")
+
+    # ── CHECKPOINT 5: Total bets collected ────────────────────────────────────
+    st.write(f"🔍 **[DEBUG 5]** Total individual bets collected: {len(bets)}")
+
+    if len(bets) < 3:
+        st.error(f"❌ Need at least 3 bets from 3 different fixtures to form a set. "
+                 f"Only {len(bets)} bets collected. "
+                 f"Lower MIN_SINGLE_PROB (currently {MIN_SINGLE_PROB}) "
+                 f"or check xG values.")
         return []
 
     # ── Combine into 3-leg accumulators ──────────────────────────────────────
     sets = []
+    combos_checked = 0
 
     for combo in itertools.combinations(bets, 3):
         matches = {b["match"] for b in combo}
-
-        # FIX 9: Original required len(matches) < 3 to SKIP — this is correct
-        # logic but kept as-is; each leg must come from a different fixture
         if len(matches) < 3:
-            continue
-
-        # FIX 10: Also skip combos with duplicate markets on the same fixture
-        # (original didn't check this — e.g. Over 0.5 + Over 1.5 on same game
-        # are correlated and shouldn't both appear in the same set)
-        market_match_pairs = [(b["match"], b["market"]) for b in combo]
-        if len(set(market_match_pairs)) < len(market_match_pairs):
             continue
 
         combined_prob = combo[0]["prob"] * combo[1]["prob"] * combo[2]["prob"]
@@ -149,11 +147,22 @@ def generate_sets(fixtures, model="xG Only"):
                 "odds": round(combined_odds, 3),
             })
 
-        # FIX 11: Early exit once we have enough sets — itertools.combinations
-        # can generate millions of combos on large fixture lists and hang the app
+        combos_checked += 1
         if len(sets) >= MAX_SETS * 10:
             break
 
-    # Sort by probability descending, return top N
+    # ── CHECKPOINT 6: Sets found ──────────────────────────────────────────────
+    st.write(f"🔍 **[DEBUG 6]** Combos checked: {combos_checked} | "
+             f"Sets above {MIN_SET_PROB*100:.0f}%: {len(sets)}")
+
+    if not sets:
+        st.error(
+            f"❌ Zero sets found. Best combined prob from your bets: "
+            f"{max((b['prob'] for b in bets), default=0)*100:.1f}%. "
+            f"Three of those multiplied: "
+            f"{max((b['prob'] for b in bets), default=0)**3*100:.1f}%. "
+            f"MIN_SET_PROB is {MIN_SET_PROB*100:.0f}%."
+        )
+
     sets.sort(key=lambda x: x["prob"], reverse=True)
     return sets[:MAX_SETS]
