@@ -746,10 +746,12 @@ html = f"""<!DOCTYPE html>
     <div class="filter-bar">
       <span class="filter-label">Threshold</span>
       <div class="threshold-pills">
-        <button class="thr-pill" onclick="setThreshold(this,60)">&#8805;60%</button>
-        <button class="thr-pill active" onclick="setThreshold(this,70)">&#8805;70%</button>
-        <button class="thr-pill" onclick="setThreshold(this,80)">&#8805;80%</button>
-        <button class="thr-pill" onclick="setThreshold(this,90)">&#8805;90%</button>
+        <button class="thr-pill" onclick="setThreshold(this,40)">&#8805;40%</button>
+<button class="thr-pill" onclick="setThreshold(this,50)">&#8805;50%</button>
+<button class="thr-pill" onclick="setThreshold(this,60)">&#8805;60%</button>
+<button class="thr-pill active" onclick="setThreshold(this,70)">&#8805;70%</button>
+<button class="thr-pill" onclick="setThreshold(this,80)">&#8805;80%</button>
+<button class="thr-pill" onclick="setThreshold(this,90)">&#8805;90%</button>
       </div>
       <div class="filter-divider"></div>
       <div class="sets-count-badge">
