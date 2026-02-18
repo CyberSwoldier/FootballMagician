@@ -1,3 +1,15 @@
+"""
+Football Betting Probability Flashcards
+========================================
+Uses Football-Data.org API (free tier: 10 requests/min, no credit card)
+
+Setup:
+1. Get free key: https://www.football-data.org/client/register
+2. Add to .streamlit/secrets.toml:
+       FOOTBALL_DATA_KEY = "your_key_here"
+3. Run: streamlit run betting_app.py
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,7 +18,6 @@ from datetime import date, timedelta
 from scipy.stats import poisson
 import itertools
 import time
-import streamlit.components.v1 as components
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIG
@@ -17,116 +28,8 @@ st.set_page_config(page_title="⚽ Betting Flashcards", layout="wide", initial_s
 st.markdown("""
 <style>
     #MainMenu, header, footer {visibility: hidden;}
-    .block-container {padding-top: 1.0rem; max-width: 1400px;}
-    body {
-        background: radial-gradient(circle at top, #1b2740 0, #050814 55%, #02030a 100%);
-        color: #e0e6f5;
-    }
-    h1 {color: #e5ecff;}
-
-    /* Sidebar League Panel */
-    .league-sidebar {
-        background: #0b1220;
-        border-right: 1px solid #2b3a5c;
-        padding: 1rem 0.5rem;
-        height: 100%;
-    }
-    .league-btn {
-        display: block;
-        width: 100%;
-        padding: 8px 10px;
-        margin-bottom: 6px;
-        border-radius: 6px;
-        border: 1px solid #2b3a5c;
-        background: linear-gradient(135deg, #10182b, #0b1220);
-        color: #d7e2ff;
-        font-size: 13px;
-        cursor: pointer;
-        text-align: left;
-        transition: all 0.15s ease-out;
-    }
-    .league-btn:hover {
-        border-color: #4da8ff;
-        box-shadow: 0 0 8px rgba(77,168,255,0.4);
-    }
-    .league-btn.disabled {
-        opacity: 0.35;
-        cursor: not-allowed;
-        border-style: dashed;
-    }
-    .league-btn.active {
-        border-color: #1eff8e;
-        box-shadow: 0 0 10px rgba(30,255,142,0.5);
-    }
-
-    /* Flashcards */
-    .flashcard-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 16px;
-        margin-bottom: 18px;
-    }
-    .flashcard-rect {
-        flex: 1 1 calc(33.333% - 16px);
-        min-width: 260px;
-        max-width: 380px;
-        background: linear-gradient(135deg, rgba(10,20,45,0.96), rgba(5,10,25,0.98));
-        border-radius: 10px;
-        border: 1px solid rgba(180,190,210,0.25);
-        box-shadow: 0 4px 14px rgba(0,0,0,0.45);
-        padding: 14px 16px;
-    }
-    .flashcard-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 10px;
-    }
-    .flashcard-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: #e5ecff;
-    }
-    .flashcard-prob {
-        font-size: 22px;
-        font-weight: 700;
-        text-shadow: 0 0 8px rgba(255,255,255,0.25);
-    }
-
-    /* Bets inside flashcard */
-    .flashcard-bet {
-        background: rgba(18,30,60,0.7);
-        border-radius: 8px;
-        padding: 8px 10px;
-        margin-bottom: 6px;
-        border-left: 3px solid rgba(180,190,210,0.6);
-    }
-    .flashcard-bet-match {
-        font-size: 12px;
-        font-weight: 600;
-        color: #d7e2ff;
-        margin-bottom: 3px;
-    }
-    .flashcard-bet-market {
-        font-size: 11px;
-        color: #9aa7c8;
-        margin-bottom: 3px;
-    }
-    .flashcard-bet-prob {
-        font-size: 13px;
-        font-weight: 600;
-    }
-
-    /* League Stats Box */
-    .league-stats-box {
-        background: rgba(255,255,255,0.06);
-        border: 1px solid rgba(200,200,220,0.15);
-        border-radius: 8px;
-        padding: 8px 10px;
-        margin-bottom: 10px;
-        font-size: 11px;
-        color: #cfd8f0;
-    }
+    .block-container {padding-top: 1.5rem;}
+    h1 {font-size: 2.5rem; margin-bottom: 0.5rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -137,29 +40,38 @@ st.markdown("""
 API_KEY = st.secrets.get("FOOTBALL_DATA_KEY", "")
 BASE_URL = "https://api.football-data.org/v4"
 
+# Top European competitions (Football-Data IDs)
 COMPETITIONS = {
-    "PL": 2021,
-    "PD": 2014,
-    "BL1": 2002,
-    "SA": 2019,
-    "FL1": 2015,
-    "PPL": 2017,
-    "CL": 2001,
+    "PL": 2021,   # Premier League
+    "PD": 2014,   # La Liga
+    "BL1": 2002,  # Bundesliga
+    "SA": 2019,   # Serie A
+    "FL1": 2015,  # Ligue 1
+    "PPL": 2017,  # Primeira Liga
+    "CL": 2001,   # Champions League
 }
 
 def api_get(endpoint: str, params: dict = None) -> dict:
+    """Call Football-Data.org with error handling."""
     if not API_KEY:
         return {}
+    
     headers = {"X-Auth-Token": API_KEY}
+    
     try:
         resp = requests.get(f"{BASE_URL}/{endpoint}", headers=headers, params=params, timeout=15)
         if resp.status_code == 429:
+            st.warning("⚠️ Rate limit hit. Waiting 60s...")
             time.sleep(60)
             resp = requests.get(f"{BASE_URL}/{endpoint}", headers=headers, params=params, timeout=15)
+        
         if resp.status_code != 200:
+            st.warning(f"⚠️ API returned {resp.status_code}")
             return {}
+        
         return resp.json()
-    except:
+    except Exception as e:
+        st.error(f"❌ API error: {e}")
         return {}
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -167,14 +79,18 @@ def api_get(endpoint: str, params: dict = None) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def score_matrix(home_xg: float, away_xg: float, max_goals: int = 6) -> dict:
+    """Probability matrix for all scorelines."""
     matrix = {}
     for h in range(max_goals + 1):
         for a in range(max_goals + 1):
-            matrix[(h, a)] = poisson.pmf(h, home_xg) * poisson.pmf(a, away_xg)
+            prob = poisson.pmf(h, home_xg) * poisson.pmf(a, away_xg)
+            matrix[(h, a)] = prob
     return matrix
 
 def calculate_markets(home_xg: float, away_xg: float) -> dict:
+    """Calculate all betting market probabilities."""
     matrix = score_matrix(home_xg, away_xg)
+    
     return {
         "Over 0.5 Goals":   sum(p for (h, a), p in matrix.items() if h + a > 0),
         "Over 1.5 Goals":   sum(p for (h, a), p in matrix.items() if h + a > 1),
@@ -193,55 +109,79 @@ def calculate_markets(home_xg: float, away_xg: float) -> dict:
 # DATA FETCHING
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_todays_fixtures() -> pd.DataFrame:
+    """Fetch today's fixtures from Football-Data.org."""
     if not API_KEY:
         return pd.DataFrame()
+    
     today = date.today().strftime("%Y-%m-%d")
     tomorrow = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+    
     all_fixtures = []
+    
+    # Fetch from each competition
     for comp_code, comp_id in COMPETITIONS.items():
         data = api_get(f"competitions/{comp_id}/matches", {
             "dateFrom": today,
             "dateTo": tomorrow,
         })
+        
         for match in data.get("matches", []):
             if match.get("status") not in ["SCHEDULED", "TIMED"]:
                 continue
-            home = match.get("homeTeam", {})
-            away = match.get("awayTeam", {})
+            
+            home_team = match.get("homeTeam", {})
+            away_team = match.get("awayTeam", {})
+            
             all_fixtures.append({
-                "home": home.get("name", "Unknown"),
-                "away": away.get("name", "Unknown"),
-                "home_id": home.get("id", 0),
-                "away_id": away.get("id", 0),
+                "home": home_team.get("name", "Unknown"),
+                "away": away_team.get("name", "Unknown"),
+                "home_id": home_team.get("id", 0),
+                "away_id": away_team.get("id", 0),
                 "competition": comp_code,
             })
-        time.sleep(0.2)
+        
+        time.sleep(0.2)  # Respect rate limit
+    
     return pd.DataFrame(all_fixtures)
 
-@st.cache_data(ttl=7200)
+@st.cache_data(ttl=7200, show_spinner=False)
 def get_team_xg(team_id: int, home: bool = True) -> float:
-    data = api_get(f"teams/{team_id}/matches", {"status": "FINISHED", "limit": 10})
-    goals = []
-    for match in data.get("matches", []):
+    """
+    Estimate xG from team's recent matches.
+    Football-Data.org doesn't have xG, so we use goals scored/conceded.
+    """
+    data = api_get(f"teams/{team_id}/matches", {
+        "status": "FINISHED",
+        "limit": 10,
+    })
+    
+    goals_scored = []
+    matches = data.get("matches", [])
+    
+    for match in matches:
         home_team = match.get("homeTeam", {})
         away_team = match.get("awayTeam", {})
         score = match.get("score", {}).get("fullTime", {})
+        
         if home_team.get("id") == team_id:
-            g = score.get("home")
+            goals = score.get("home")
+            if goals is not None:
+                goals_scored.append(int(goals))
         elif away_team.get("id") == team_id:
-            g = score.get("away")
-        else:
-            g = None
-        if g is not None:
-            goals.append(int(g))
-    if goals:
-        avg = sum(goals) / len(goals)
+            goals = score.get("away")
+            if goals is not None:
+                goals_scored.append(int(goals))
+    
+    if goals_scored:
+        avg = sum(goals_scored) / len(goals_scored)
         return round(avg * (1.05 if home else 0.95), 2)
+    
     return 1.4 if home else 1.2
 
 def get_mock_fixtures() -> pd.DataFrame:
+    """Fallback mock data when API unavailable."""
     teams = [
         ("Arsenal", "Chelsea", 1.8, 1.4),
         ("Man City", "Liverpool", 2.1, 1.6),
@@ -256,90 +196,67 @@ def get_mock_fixtures() -> pd.DataFrame:
         ("Benfica", "Braga", 1.7, 1.3),
         ("Roma", "Lazio", 1.6, 1.5),
     ]
-    rows = []
-    for home, away, hxg, axg in teams:
-        rows.append({
+    
+    fixtures = []
+    for home, away, home_xg, away_xg in teams:
+        fixtures.append({
             "home": home,
             "away": away,
             "home_id": hash(home) % 10000,
             "away_id": hash(away) % 10000,
-            "home_xg": hxg,
-            "away_xg": axg,
+            "home_xg": home_xg,
+            "away_xg": away_xg,
             "competition": "Mock",
         })
-    return pd.DataFrame(rows)
+    
+    return pd.DataFrame(fixtures)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# FLASHCARD GENERATION (REFINED WITH LEAGUE STATS)
+# BET SET GENERATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 def generate_flashcards(fixtures: pd.DataFrame, min_single_prob: float = 0.55) -> dict:
-    if fixtures.empty:
-        return {}
-
-    # League stats
-    league_stats = (
-        fixtures.groupby("competition")
-        .agg(
-            avg_home_xg=("home_xg", "mean"),
-            avg_away_xg=("away_xg", "mean"),
-            avg_total_xg=(lambda df: (df["home_xg"] + df["away_xg"]).mean()),
-            matches=("home", "count"),
-        )
-        .reset_index()
-    )
-
-    def scoring_profile(row):
-        if row["avg_total_xg"] >= 3.0:
-            return "High Scoring League"
-        if row["avg_total_xg"] >= 2.3:
-            return "Moderate Scoring League"
-        return "Low Scoring League"
-
-    league_stats["profile"] = league_stats.apply(scoring_profile, axis=1)
-    league_stats_dict = league_stats.set_index("competition").to_dict(orient="index")
-
+    """Generate flashcards for each threshold (70%, 60%, 50%, 40%)."""
+    
     # Build individual bets
     all_bets = []
     for _, row in fixtures.iterrows():
         markets = calculate_markets(row["home_xg"], row["away_xg"])
         match_name = f"{row['home']} vs {row['away']}"
+        
         for market, prob in markets.items():
             if prob >= min_single_prob:
                 all_bets.append({
                     "match": match_name,
                     "market": market,
                     "prob": min(prob, 0.99),
-                    "competition": row["competition"],
                 })
-
+    
     if len(all_bets) < 3:
         return {}
-
+    
+    # Generate sets for each threshold
     thresholds = [0.70, 0.60, 0.50, 0.40]
     results = {t: [] for t in thresholds}
-
+    
     for combo in itertools.combinations(all_bets, 3):
+        # Must be 3 different matches
         if len({b["match"] for b in combo}) < 3:
             continue
-
+        
         combined = combo[0]["prob"] * combo[1]["prob"] * combo[2]["prob"]
-        leagues = {b["competition"] for b in combo}
-        league = leagues.pop() if len(leagues) == 1 else "Mixed"
-        league_info = league_stats_dict.get(league, None)
-
-        for t in thresholds:
-            if combined >= t and len(results[t]) < 5:
-                results[t].append({
+        
+        for threshold in thresholds:
+            if combined >= threshold and len(results[threshold]) < 5:
+                results[threshold].append({
                     "bets": list(combo),
                     "prob": combined,
-                    "league": league,
-                    "league_stats": league_info,
                 })
-
+    
+    # Sort each threshold by probability
     for t in thresholds:
         results[t] = sorted(results[t], key=lambda x: x["prob"], reverse=True)[:5]
-
+    
     return results
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -349,86 +266,122 @@ def generate_flashcards(fixtures: pd.DataFrame, min_single_prob: float = 0.55) -
 st.title("⚽ Football Betting Flashcards")
 st.caption(f"📅 {date.today().strftime('%A, %B %d, %Y')}")
 
-left_col, right_col = st.columns([1, 3])
+# Sidebar controls
+use_mock = st.sidebar.checkbox("📊 Use Mock Data", value=not bool(API_KEY))
+show_debug = st.sidebar.checkbox("🔍 Show Debug Info", value=False)
+min_single = st.sidebar.slider("Min Individual Bet %", 50, 80, 55)
 
-# Fetch fixtures
+st.markdown("---")
+
+# API setup help
+if not API_KEY and not use_mock:
+    st.info("""
+    ### 🔑 Setup API (2 minutes, free forever)
+    
+    1. **Get free key:** https://www.football-data.org/client/register
+    2. **Add to `.streamlit/secrets.toml`:**
+       ```toml
+       FOOTBALL_DATA_KEY = "your_key_here"
+       ```
+    3. **Restart app**
+    
+    Or check "Use Mock Data" in sidebar to see it working now.
+    """)
+
+# Fetch data
 with st.spinner("Loading fixtures..."):
-    use_mock = st.sidebar.checkbox("📊 Use Mock Data", value=not bool(API_KEY))
     if use_mock or not API_KEY:
         fixtures = get_mock_fixtures()
+        if not use_mock:
+            st.warning("💡 **Using mock data** — add FOOTBALL_DATA_KEY for live fixtures")
     else:
         fixtures = get_todays_fixtures()
+        
         if fixtures.empty:
+            st.warning("⚠️ No fixtures scheduled today/tomorrow. Using mock data...")
             fixtures = get_mock_fixtures()
         else:
-            fixtures["home_xg"] = fixtures["home_id"].apply(lambda x: get_team_xg(x, home=True))
-            fixtures["away_xg"] = fixtures["away_id"].apply(lambda x: get_team_xg(x, home=False))
+            st.success(f"✅ Loaded {len(fixtures)} fixtures")
+            
+            # Calculate xG from recent form
+            with st.spinner("Calculating xG from recent form..."):
+                fixtures["home_xg"] = fixtures["home_id"].apply(lambda x: get_team_xg(x, home=True))
+                fixtures["away_xg"] = fixtures["away_id"].apply(lambda x: get_team_xg(x, home=False))
 
-# League availability
-league_has_matches = {code: (fixtures["competition"] == code).any() for code in COMPETITIONS.keys()}
-default_league = next((c for c, ok in league_has_matches.items() if ok)), "All"
+if show_debug:
+    st.subheader("🔍 Debug: Loaded Fixtures")
+    st.dataframe(fixtures[["home", "away", "home_xg", "away_xg", "competition"]])
 
-if "selected_league" not in st.session_state:
-    st.session_state["selected_league"] = default_league
+# Generate flashcards
+flashcards = generate_flashcards(fixtures, min_single_prob=min_single/100)
 
-with left_col:
-    st.markdown('<div class="league-sidebar">', unsafe_allow_html=True)
+if not flashcards or all(len(cards) == 0 for cards in flashcards.values()):
+    st.error("❌ No bet sets found. Try lowering 'Min Individual Bet %' in sidebar.")
+    st.stop()
 
-    hidden = st.text_input(
-        "selected_league_hidden",
-        value=st.session_state["selected_league"],
-        label_visibility="hidden",
-        key="league_hidden"
-    )
+# Display flashcards by threshold
+threshold_config = {
+    0.70: ("🟢 High Confidence", "#1eff8e"),
+    0.60: ("🔵 Good Confidence", "#4da8ff"),
+    0.50: ("🟡 Moderate", "#f0c55a"),
+    0.40: ("🟠 Lower Confidence", "#ff8c42"),
+}
 
-    # Build HTML + JS safely inside one triple-quoted string
-    league_html = """
-    <div id="league-container">
-    """
+for threshold, (label, color) in threshold_config.items():
+    cards = flashcards.get(threshold, [])
+    if not cards:
+        continue
+    
+    st.markdown(f"### {label} (≥{threshold*100:.0f}%)")
+    
+    for i, card in enumerate(cards, 1):
+        prob_pct = card["prob"] * 100
+        
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, rgba(12, 28, 60, 0.9), rgba(10, 20, 50, 0.95));
+            border: 2px solid {color}50;
+            border-left: 5px solid {color};
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        ">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h4 style="color: #e8edf5; margin: 0;">Flashcard #{i}</h4>
+                <div style="font-size: 28px; font-weight: bold; color: {color}; text-shadow: 0 0 10px {color}80;">
+                    {prob_pct:.1f}%
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        cols = st.columns(3)
+        for j, bet in enumerate(card["bets"]):
+            with cols[j]:
+                st.markdown(f"""
+                <div style="
+                    background: rgba(20, 40, 80, 0.4);
+                    padding: 14px;
+                    border-radius: 10px;
+                    border-left: 3px solid {color};
+                    margin-bottom: 10px;
+                ">
+                    <div style="color: #d0d8e8; font-weight: 600; margin-bottom: 6px; font-size: 13px;">
+                        ⚽ {bet['match']}
+                    </div>
+                    <div style="color: #8899bb; font-size: 12px; margin-bottom: 6px;">
+                        {bet['market']}
+                    </div>
+                    <div style="color: {color}; font-size: 16px; font-weight: bold;">
+                        {bet['prob']*100:.1f}%
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+    
+    st.markdown("---")
 
-    for code in COMPETITIONS.keys():
-        has = league_has_matches.get(code, False)
-        classes = "league-btn"
-        if not has:
-            classes += " disabled"
-        if code == st.session_state["selected_league"]:
-            classes += " active"
-
-        league_html += f"""
-        <button class="{classes}" data-league="{code}" {'disabled' if not has else ''}>
-            {code}
-        </button>
-        """
-
-    league_html += """
-    </div>
-
-    <script>
-    const btns = Array.from(
-        document.querySelectorAll('#league-container .league-btn:not(.disabled)')
-    );
-
-    const input = window.parent.document.querySelector(
-        'input[data-testid="stTextInput"][aria-label="selected_league_hidden"]'
-    );
-
-    btns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            btns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-
-            const league = btn.getAttribute('data-league');
-
-            if (input) {
-                input.value = league;
-                const event = new Event('input', { bubbles: true });
-                input.dispatchEvent(event);
-            }
-        });
-    });
-    </script>
-    """
-
-    components.html(league_html, height=450, scrolling=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+st.caption("💡 **Probabilities from Poisson distribution based on team's recent goals scored**")
+st.caption("⚠️ **For entertainment only — not financial advice**")
