@@ -366,7 +366,7 @@ with st.spinner("Loading fixtures..."):
 
 # League availability
 league_has_matches = {code: (fixtures["competition"] == code).any() for code in COMPETITIONS.keys()}
-default_league = next((c for c, ok in league_has_matches.items() if ok), "All")
+default_league = next((c for c, ok in league_has_matches.items() if ok), "All"
 
 if "selected_league" not in st.session_state:
     st.session_state["selected_league"] = default_league
