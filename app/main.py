@@ -142,10 +142,10 @@ def get_team_xg(team_id: int, home: bool = True) -> float:
 
 def get_mock_fixtures() -> pd.DataFrame:
     data = [
-        ("Arsenal", "Chelsea", 1.8, 1.4, "Premier League"),
-        ("Man City", "Liverpool", 2.1, 1.6, "Premier League"),
+        ("FakeArsenal", "FakeChelsea", 1.8, 1.4, "Premier League"),
+        ("FakeMan City", "FakeLiverpool", 2.1, 1.6, "Premier League"),
         ("Barcelona", "Real Madrid", 1.9, 1.7, "La Liga"),
-        ("Atletico", "Sevilla", 1.5, 1.2, "La Liga"),
+        ("FakeAtletico", "Sevilla", 1.5, 1.2, "La Liga"),
         ("Bayern Munich", "Dortmund", 2.0, 1.5, "Bundesliga"),
         ("RB Leipzig", "Leverkusen", 1.7, 1.4, "Bundesliga"),
         ("Inter", "AC Milan", 1.6, 1.4, "Serie A"),
