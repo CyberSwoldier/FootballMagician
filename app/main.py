@@ -1,7 +1,7 @@
 """
-Football Betting Probability Dashboard v4
-==========================================
-Mobile-optimized: Controls in header, responsive grid, touch-friendly
+Football Betting Probability Dashboard - FINAL
+===============================================
+Fixed: Real data fetching + All diverse markets visible
 """
 
 import streamlit as st
@@ -50,60 +50,95 @@ def score_matrix(home_xg: float, away_xg: float, max_goals: int = 6) -> dict:
     return matrix
 
 def calculate_diverse_markets(home_xg: float, away_xg: float) -> dict:
+    """Calculate ALL markets including goals, BTTS, corners, shots, fouls, cards."""
     matrix = score_matrix(home_xg, away_xg)
-    
-    markets = {
-        "Over 0.5 Goals": sum(p for (h, a), p in matrix.items() if h + a > 0),
-        "Over 1.5 Goals": sum(p for (h, a), p in matrix.items() if h + a > 1),
-        "Over 2.5 Goals": sum(p for (h, a), p in matrix.items() if h + a > 2),
-        "Under 2.5 Goals": sum(p for (h, a), p in matrix.items() if h + a < 3),
-        "Under 3.5 Goals": sum(p for (h, a), p in matrix.items() if h + a < 4),
-        "BTTS": sum(p for (h, a), p in matrix.items() if h >= 1 and a >= 1),
-        "BTTS & Over 2.5": sum(p for (h, a), p in matrix.items() if h >= 1 and a >= 1 and h + a > 2),
-    }
-    
     total_xg = home_xg + away_xg
-    avg_corners = 10 + (total_xg - 2.5) * 1.5
+    
+    markets = {}
+    
+    # ── GOALS ──────────────────────────────────────────────────────────────────
+    markets["Over 0.5 Goals"] = sum(p for (h, a), p in matrix.items() if h + a > 0)
+    markets["Over 1.5 Goals"] = sum(p for (h, a), p in matrix.items() if h + a > 1)
+    markets["Over 2.5 Goals"] = sum(p for (h, a), p in matrix.items() if h + a > 2)
+    markets["Over 3.5 Goals"] = sum(p for (h, a), p in matrix.items() if h + a > 3)
+    markets["Under 2.5 Goals"] = sum(p for (h, a), p in matrix.items() if h + a < 3)
+    markets["Under 3.5 Goals"] = sum(p for (h, a), p in matrix.items() if h + a < 4)
+    markets["Under 4.5 Goals"] = sum(p for (h, a), p in matrix.items() if h + a < 5)
+    
+    # ── BTTS ───────────────────────────────────────────────────────────────────
+    markets["BTTS Yes"] = sum(p for (h, a), p in matrix.items() if h >= 1 and a >= 1)
+    markets["BTTS No"] = sum(p for (h, a), p in matrix.items() if h == 0 or a == 0)
+    markets["BTTS & Over 2.5"] = sum(p for (h, a), p in matrix.items() if h >= 1 and a >= 1 and h + a > 2)
+    
+    # ── CORNERS (estimated from xG - more attacking = more corners) ───────────
+    avg_corners = 10 + (total_xg - 2.5) * 1.8
+    markets["Over 8.5 Corners"] = 1 - poisson.cdf(8, avg_corners)
     markets["Over 9.5 Corners"] = 1 - poisson.cdf(9, avg_corners)
     markets["Over 10.5 Corners"] = 1 - poisson.cdf(10, avg_corners)
+    markets["Over 11.5 Corners"] = 1 - poisson.cdf(11, avg_corners)
+    markets["Under 10.5 Corners"] = poisson.cdf(10, avg_corners)
     markets["Under 11.5 Corners"] = poisson.cdf(11, avg_corners)
     
-    home_shots = max(3, home_xg * 3)
-    away_shots = max(3, away_xg * 3)
+    # ── SHOTS ON TARGET (roughly 3-4x xG per team) ────────────────────────────
+    home_shots = max(3, home_xg * 3.5)
+    away_shots = max(3, away_xg * 3.5)
     total_shots = home_shots + away_shots
+    markets["Over 9.5 Shots on Target"] = 1 - poisson.cdf(9, total_shots)
     markets["Over 10.5 Shots on Target"] = 1 - poisson.cdf(10, total_shots)
+    markets["Over 11.5 Shots on Target"] = 1 - poisson.cdf(11, total_shots)
     markets["Over 12.5 Shots on Target"] = 1 - poisson.cdf(12, total_shots)
+    markets["Under 12.5 Shots on Target"] = poisson.cdf(12, total_shots)
     
-    avg_fouls = 22 + abs(home_xg - away_xg) * 2
+    # ── FOULS (competitive matches = more fouls) ──────────────────────────────
+    competitiveness = abs(home_xg - away_xg)
+    avg_fouls = 22 + competitiveness * 2.5
+    markets["Over 22.5 Fouls"] = 1 - poisson.cdf(22, avg_fouls)
     markets["Over 24.5 Fouls"] = 1 - poisson.cdf(24, avg_fouls)
-    markets["Under 26.5 Fouls"] = poisson.cdf(26, avg_fouls)
+    markets["Over 26.5 Fouls"] = 1 - poisson.cdf(26, avg_fouls)
+    markets["Under 25.5 Fouls"] = poisson.cdf(25, avg_fouls)
+    markets["Under 27.5 Fouls"] = poisson.cdf(27, avg_fouls)
     
-    avg_cards = 3.5 + abs(home_xg - away_xg) * 0.5
+    # ── CARDS (more fouls = more cards) ───────────────────────────────────────
+    avg_cards = 3.5 + competitiveness * 0.8
+    markets["Over 2.5 Cards"] = 1 - poisson.cdf(2, avg_cards)
     markets["Over 3.5 Cards"] = 1 - poisson.cdf(3, avg_cards)
+    markets["Over 4.5 Cards"] = 1 - poisson.cdf(4, avg_cards)
+    markets["Under 4.5 Cards"] = poisson.cdf(4, avg_cards)
     markets["Under 5.5 Cards"] = poisson.cdf(5, avg_cards)
     
+    # ── RESULTS ────────────────────────────────────────────────────────────────
     markets["Home Win"] = sum(p for (h, a), p in matrix.items() if h > a)
     markets["Away Win"] = sum(p for (h, a), p in matrix.items() if h < a)
     markets["Draw"] = sum(p for (h, a), p in matrix.items() if h == a)
+    markets["Double Chance 1X"] = sum(p for (h, a), p in matrix.items() if h >= a)
+    markets["Double Chance X2"] = sum(p for (h, a), p in matrix.items() if h <= a)
     
     return markets
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_all_fixtures() -> pd.DataFrame:
+    """Fetch today's + tomorrow's fixtures from Football-Data.org API."""
     if not API_KEY:
+        st.warning("⚠️ No API key found. Using mock data. Add FOOTBALL_DATA_KEY to secrets.toml for live fixtures.")
         return get_mock_fixtures()
     
     today = date.today().strftime("%Y-%m-%d")
     tomorrow = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures = []
     
+    st.info(f"📡 Fetching fixtures for {today} and {tomorrow}...")
+    
     for league_name, comp_id in COMPETITIONS.items():
         data = api_get(f"competitions/{comp_id}/matches", {"dateFrom": today, "dateTo": tomorrow})
+        
+        match_count = 0
         for match in data.get("matches", []):
             if match.get("status") not in ["SCHEDULED", "TIMED"]:
                 continue
+            
             home_team = match.get("homeTeam", {})
             away_team = match.get("awayTeam", {})
+            
             all_fixtures.append({
                 "home": home_team.get("name", "Unknown"),
                 "away": away_team.get("name", "Unknown"),
@@ -111,21 +146,33 @@ def get_all_fixtures() -> pd.DataFrame:
                 "away_id": away_team.get("id", 0),
                 "league": league_name,
             })
+            match_count += 1
+        
+        if match_count > 0:
+            st.success(f"✅ {league_name}: {match_count} fixtures")
+        
         time.sleep(0.2)
     
     df = pd.DataFrame(all_fixtures)
+    
     if df.empty:
+        st.warning("⚠️ No fixtures found for today/tomorrow. Using mock data.")
         return get_mock_fixtures()
+    
+    st.success(f"✅ Total: {len(df)} fixtures loaded")
     return df
 
 @st.cache_data(ttl=7200, show_spinner=False)
 def get_team_xg(team_id: int, home: bool = True) -> float:
+    """Get team's rolling xG average from last 10 matches."""
     data = api_get(f"teams/{team_id}/matches", {"status": "FINISHED", "limit": 10})
     goals_scored = []
+    
     for match in data.get("matches", []):
         home_team = match.get("homeTeam", {})
         away_team = match.get("awayTeam", {})
         score = match.get("score", {}).get("fullTime", {})
+        
         if home_team.get("id") == team_id:
             goals = score.get("home")
             if goals is not None:
@@ -134,20 +181,27 @@ def get_team_xg(team_id: int, home: bool = True) -> float:
             goals = score.get("away")
             if goals is not None:
                 goals_scored.append(int(goals))
+    
     if goals_scored:
-        return round(sum(goals_scored) / len(goals_scored) * (1.05 if home else 0.95), 2)
+        avg = sum(goals_scored) / len(goals_scored)
+        return round(avg * (1.05 if home else 0.95), 2)
+    
     return 1.4 if home else 1.2
 
 def get_mock_fixtures() -> pd.DataFrame:
+    """Mock data for testing when API unavailable."""
     data = [
         ("Arsenal", "Chelsea", 1.8, 1.4, "Premier League"),
         ("Man City", "Liverpool", 2.1, 1.6, "Premier League"),
+        ("Tottenham", "Newcastle", 1.7, 1.5, "Premier League"),
         ("Barcelona", "Real Madrid", 1.9, 1.7, "La Liga"),
         ("Atletico", "Sevilla", 1.5, 1.2, "La Liga"),
+        ("Valencia", "Villarreal", 1.4, 1.3, "La Liga"),
         ("Bayern Munich", "Dortmund", 2.0, 1.5, "Bundesliga"),
         ("RB Leipzig", "Leverkusen", 1.7, 1.4, "Bundesliga"),
         ("Inter", "AC Milan", 1.6, 1.4, "Serie A"),
         ("Juventus", "Napoli", 1.5, 1.6, "Serie A"),
+        ("Roma", "Lazio", 1.6, 1.5, "Serie A"),
         ("PSG", "Lyon", 1.9, 1.3, "Ligue 1"),
         ("Marseille", "Monaco", 1.5, 1.4, "Ligue 1"),
         ("Porto", "Sporting", 1.6, 1.5, "Primeira Liga"),
@@ -163,13 +217,16 @@ def get_mock_fixtures() -> pd.DataFrame:
     return pd.DataFrame(fixtures)
 
 def generate_all_flashcards(fixtures: pd.DataFrame) -> list:
+    """Generate all bet combinations (JS filters by range)."""
     all_bets = []
+    
     for _, row in fixtures.iterrows():
         markets = calculate_diverse_markets(row["home_xg"], row["away_xg"])
         match_name = f"{row['home']} vs {row['away']}"
         
+        # Include bets with reasonable probability (35-95%)
         for market, prob in markets.items():
-            if 0.40 <= prob <= 0.95:
+            if 0.35 <= prob <= 0.95:
                 all_bets.append({
                     "match": match_name,
                     "market": market,
@@ -182,33 +239,47 @@ def generate_all_flashcards(fixtures: pd.DataFrame) -> list:
     
     results = []
     for combo in itertools.combinations(all_bets, 3):
+        # Must be from 3 different matches
         if len({b["match"] for b in combo}) < 3:
             continue
         
         combined = combo[0]["prob"] * combo[1]["prob"] * combo[2]["prob"]
         
-        if combined >= 0.40:
+        if combined >= 0.35:
             results.append({"bets": list(combo), "prob": combined})
         
-        if len(results) >= 200:
+        if len(results) >= 300:  # Generate enough for all ranges
             break
     
     return sorted(results, key=lambda x: x["prob"], reverse=True)
 
-use_mock = st.sidebar.checkbox("📊 Use Mock Data", value=not bool(API_KEY))
+# ══════════════════════════════════════════════════════════════════════════════
+# LOAD DATA
+# ══════════════════════════════════════════════════════════════════════════════
 
-with st.spinner("Loading fixtures..."):
-    if use_mock:
+# Default to real data (not mock)
+use_real_data = not st.sidebar.checkbox("Use Mock Data", value=False)
+
+with st.spinner("🔄 Loading fixtures..."):
+    if not use_real_data:
+        st.info("📊 Using mock data (disable in sidebar for live fixtures)")
         all_fixtures = get_mock_fixtures()
     else:
         all_fixtures = get_all_fixtures()
-        if "home_xg" not in all_fixtures.columns:
-            with st.spinner("Calculating xG..."):
+        
+        if "home_xg" not in all_fixtures.columns and not all_fixtures.empty:
+            with st.spinner("🧮 Calculating xG estimates..."):
                 all_fixtures["home_xg"] = all_fixtures["home_id"].apply(lambda x: get_team_xg(x, True))
                 all_fixtures["away_xg"] = all_fixtures["away_id"].apply(lambda x: get_team_xg(x, False))
 
+if all_fixtures.empty:
+    st.error("❌ No fixtures available")
+    st.stop()
+
 league_counts = all_fixtures['league'].value_counts().to_dict()
 all_flashcards = generate_all_flashcards(all_fixtures)
+
+st.success(f"✅ Generated {len(all_flashcards)} bet sets from {len(all_fixtures)} fixtures")
 
 flashcards_json = json.dumps(all_flashcards)
 league_counts_json = json.dumps(league_counts)
@@ -253,7 +324,6 @@ body::before {{
   50% {{ opacity: 0.7; }}
 }}
 
-/* HEADER */
 .header {{
   background: linear-gradient(135deg, rgba(5, 15, 30, 0.95), rgba(10, 25, 50, 0.92));
   border-bottom: 1px solid rgba(0, 217, 255, 0.2);
@@ -328,7 +398,6 @@ body::before {{
   text-shadow: 0 0 10px rgba(0, 217, 255, 0.5);
 }}
 
-/* CONTROLS */
 .controls {{
   display: flex;
   gap: 20px;
@@ -420,7 +489,7 @@ body::before {{
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  min-width: 200px;
+  min-width: 220px;
   background: rgba(5, 15, 30, 0.98);
   border: 1px solid rgba(0, 217, 255, 0.3);
   border-radius: 10px;
@@ -428,7 +497,7 @@ body::before {{
   display: none;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
   z-index: 1000;
-  max-height: 300px;
+  max-height: 350px;
   overflow-y: auto;
 }}
 
@@ -486,7 +555,6 @@ body::before {{
   border-radius: 4px;
 }}
 
-/* MAIN */
 .main {{
   padding: 32px 24px;
   position: relative;
@@ -504,12 +572,6 @@ body::before {{
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 18px;
-  animation: fade-in 0.4s ease;
-}}
-
-@keyframes fade-in {{
-  from {{ opacity: 0; }}
-  to {{ opacity: 1; }}
 }}
 
 .flashcard {{
@@ -638,22 +700,16 @@ body::before {{
   line-height: 1.6;
 }}
 
-/* MOBILE */
 @media (max-width: 768px) {{
-  .header {{ padding: 16px 16px; }}
-  .header-top {{ margin-bottom: 12px; }}
+  .header {{ padding: 16px; }}
   .brand-title {{ font-size: 18px; }}
-  .header-stats {{ gap: 12px; }}
-  .stat-value {{ font-size: 14px; }}
-  .controls {{ gap: 12px; }}
   .threshold-pills {{ gap: 4px; }}
   .threshold-btn {{ padding: 6px 10px; font-size: 10px; }}
   .main {{ padding: 20px 16px; }}
-  .flashcards-grid {{ grid-template-columns: 1fr; gap: 14px; }}
+  .flashcards-grid {{ grid-template-columns: 1fr; }}
 }}
 
-::-webkit-scrollbar {{ width: 5px; height: 5px; }}
-::-webkit-scrollbar-track {{ background: transparent; }}
+::-webkit-scrollbar {{ width: 5px; }}
 ::-webkit-scrollbar-thumb {{ background: rgba(0, 217, 255, 0.3); border-radius: 3px; }}
 </style>
 </head>
@@ -698,7 +754,7 @@ body::before {{
 </div>
 
 <div class="main">
-  <div class="content-subtitle" id="subtitle">Probability range: 40-50%</div>
+  <div class="content-subtitle" id="subtitle">Probability range: 40-50% • Diverse markets: Goals, BTTS, Corners, Shots, Fouls, Cards</div>
   <div class="flashcards-grid" id="flashcards-container"></div>
 </div>
 
@@ -821,7 +877,7 @@ function attachEventListeners() {{
       currentMax = parseFloat(btn.dataset.max);
       const range = btn.dataset.range;
       
-      document.getElementById('subtitle').textContent = `Probability range: ${{range}}`;
+      document.getElementById('subtitle').textContent = `Probability range: ${{range}} • Diverse markets: Goals, BTTS, Corners, Shots, Fouls, Cards`;
       document.getElementById('range-display').textContent = range;
       
       renderFlashcards();
