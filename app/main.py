@@ -389,7 +389,7 @@ with left_col:
             {code}
         </button>
         """
-    league_html += """
+    league_html += ""
     </div>
     <script>
     const btns = Array.from(document.querySelectorAll('#league-container .league-btn:not(.disabled)'));
