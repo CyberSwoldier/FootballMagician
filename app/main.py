@@ -1,7 +1,7 @@
 """
-Football Betting Probability Dashboard v3
+Football Betting Probability Dashboard v4
 ==========================================
-Fixed: No freezing, all filtering happens client-side in JavaScript
+Mobile-optimized: Controls in header, responsive grid, touch-friendly
 """
 
 import streamlit as st
@@ -85,8 +85,6 @@ def calculate_diverse_markets(home_xg: float, away_xg: float) -> dict:
     markets["Home Win"] = sum(p for (h, a), p in matrix.items() if h > a)
     markets["Away Win"] = sum(p for (h, a), p in matrix.items() if h < a)
     markets["Draw"] = sum(p for (h, a), p in matrix.items() if h == a)
-    markets["Double Chance 1X"] = sum(p for (h, a), p in matrix.items() if h >= a)
-    markets["Double Chance X2"] = sum(p for (h, a), p in matrix.items() if h <= a)
     
     return markets
 
@@ -165,7 +163,6 @@ def get_mock_fixtures() -> pd.DataFrame:
     return pd.DataFrame(fixtures)
 
 def generate_all_flashcards(fixtures: pd.DataFrame) -> list:
-    """Generate ALL bet sets across all probability ranges (let JS filter)."""
     all_bets = []
     for _, row in fixtures.iterrows():
         markets = calculate_diverse_markets(row["home_xg"], row["away_xg"])
@@ -183,7 +180,6 @@ def generate_all_flashcards(fixtures: pd.DataFrame) -> list:
     if len(all_bets) < 3:
         return []
     
-    # Generate ALL combinations (JS will filter by range)
     results = []
     for combo in itertools.combinations(all_bets, 3):
         if len({b["match"] for b in combo}) < 3:
@@ -191,16 +187,14 @@ def generate_all_flashcards(fixtures: pd.DataFrame) -> list:
         
         combined = combo[0]["prob"] * combo[1]["prob"] * combo[2]["prob"]
         
-        # Include if >= 40% (JS handles upper bounds)
         if combined >= 0.40:
             results.append({"bets": list(combo), "prob": combined})
         
-        if len(results) >= 200:  # Generate more sets for all ranges
+        if len(results) >= 200:
             break
     
     return sorted(results, key=lambda x: x["prob"], reverse=True)
 
-# Load data
 use_mock = st.sidebar.checkbox("📊 Use Mock Data", value=not bool(API_KEY))
 
 with st.spinner("Loading fixtures..."):
@@ -214,8 +208,6 @@ with st.spinner("Loading fixtures..."):
                 all_fixtures["away_xg"] = all_fixtures["away_id"].apply(lambda x: get_team_xg(x, False))
 
 league_counts = all_fixtures['league'].value_counts().to_dict()
-
-# Generate ALL flashcards once (JavaScript will filter by range)
 all_flashcards = generate_all_flashcards(all_fixtures)
 
 flashcards_json = json.dumps(all_flashcards)
@@ -231,11 +223,10 @@ html_content = f"""
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Exo+2:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 :root {{
-  --navy-deepest: #020916; --navy-deep: #050f1e; --navy-mid: #0a1932; --navy-light: #112a4a;
-  --silver-pale: #c8d4e8; --silver-bright: #e2eaf5; --silver-pure: #ffffff;
+  --navy-deepest: #020916; --navy-deep: #050f1e; --navy-mid: #0a1932;
+  --silver-pale: #c8d4e8; --silver-bright: #e2eaf5;
   --silver-dim: #7a8ba8; --silver-muted: #4a5b78;
   --accent-cyan: #00d9ff; --accent-blue: #4da8ff; --accent-teal: #1eff8e;
-  --accent-gold: #ffc740; --accent-orange: #ff6b35;
 }}
 
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -244,7 +235,6 @@ body {{
   font-family: 'Exo 2', sans-serif;
   background: var(--navy-deepest);
   color: var(--silver-pale);
-  overflow-x: hidden;
   min-height: 100vh;
 }}
 
@@ -252,9 +242,7 @@ body::before {{
   content: '';
   position: fixed;
   inset: 0;
-  background: 
-    radial-gradient(ellipse 60% 50% at 20% 20%, rgba(0, 217, 255, 0.08) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 60% at 80% 70%, rgba(77, 168, 255, 0.06) 0%, transparent 55%);
+  background: radial-gradient(ellipse 60% 50% at 20% 20%, rgba(0, 217, 255, 0.08) 0%, transparent 60%);
   pointer-events: none;
   z-index: 0;
   animation: pulse-bg 8s ease-in-out infinite;
@@ -265,79 +253,58 @@ body::before {{
   50% {{ opacity: 0.7; }}
 }}
 
-.app-container {{
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  grid-template-rows: auto 1fr;
-  min-height: 100vh;
-}}
-
+/* HEADER */
 .header {{
-  grid-column: 1 / -1;
   background: linear-gradient(135deg, rgba(5, 15, 30, 0.95), rgba(10, 25, 50, 0.92));
   border-bottom: 1px solid rgba(0, 217, 255, 0.2);
-  padding: 20px 32px;
+  padding: 20px 24px;
   backdrop-filter: blur(20px);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 100;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }}
 
-.header-brand {{
+.header-top {{
   display: flex;
+  justify-content: space-between;
   align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
   gap: 16px;
 }}
 
+.brand {{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}}
+
 .brand-icon {{
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
   background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
-  border-radius: 12px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  box-shadow: 0 0 30px rgba(0, 217, 255, 0.5);
-  animation: icon-glow 3s ease-in-out infinite;
-}}
-
-@keyframes icon-glow {{
-  0%, 100% {{ box-shadow: 0 0 30px rgba(0, 217, 255, 0.5); }}
-  50% {{ box-shadow: 0 0 50px rgba(0, 217, 255, 0.8), 0 0 80px rgba(77, 168, 255, 0.4); }}
-}}
-
-.brand-text {{
-  display: flex;
-  flex-direction: column;
+  font-size: 22px;
+  box-shadow: 0 0 25px rgba(0, 217, 255, 0.5);
 }}
 
 .brand-title {{
   font-family: 'Orbitron', sans-serif;
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 900;
-  letter-spacing: 3px;
+  letter-spacing: 2px;
   background: linear-gradient(90deg, var(--silver-bright), var(--accent-cyan));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  line-height: 1;
-}}
-
-.brand-subtitle {{
-  font-size: 10px;
-  letter-spacing: 4px;
-  text-transform: uppercase;
-  color: var(--silver-dim);
-  margin-top: 4px;
 }}
 
 .header-stats {{
   display: flex;
-  gap: 24px;
-  align-items: center;
+  gap: 20px;
 }}
 
 .stat-item {{
@@ -355,174 +322,188 @@ body::before {{
 
 .stat-value {{
   font-family: 'Orbitron', sans-serif;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--accent-cyan);
   text-shadow: 0 0 10px rgba(0, 217, 255, 0.5);
 }}
 
-.sidebar {{
-  background: linear-gradient(180deg, rgba(5, 15, 30, 0.9), rgba(10, 25, 50, 0.85));
-  border-right: 1px solid rgba(0, 217, 255, 0.15);
-  padding: 24px 16px;
-  overflow-y: auto;
+/* CONTROLS */
+.controls {{
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
 }}
 
-.sidebar-section {{
-  margin-bottom: 32px;
-}}
-
-.section-label {{
-  font-size: 10px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  color: var(--silver-muted);
-  margin-bottom: 16px;
+.control-group {{
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }}
 
-.section-label::after {{
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(to right, rgba(0, 217, 255, 0.3), transparent);
+.control-label {{
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--silver-muted);
+  white-space: nowrap;
 }}
 
-.threshold-buttons {{
+.threshold-pills {{
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
 }}
 
 .threshold-btn {{
-  padding: 12px 16px;
-  border-radius: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
   border: 1px solid rgba(0, 217, 255, 0.2);
   background: transparent;
   color: var(--silver-dim);
   font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}}
-
-.threshold-btn::before {{
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(0, 217, 255, 0.1), rgba(77, 168, 255, 0.1));
-  opacity: 0;
-  transition: opacity 0.3s;
+  transition: all 0.2s;
+  white-space: nowrap;
 }}
 
 .threshold-btn:hover {{
   border-color: rgba(0, 217, 255, 0.5);
   color: var(--silver-bright);
-  transform: translateX(4px);
-}}
-
-.threshold-btn:hover::before {{
-  opacity: 1;
 }}
 
 .threshold-btn.active {{
-  background: linear-gradient(135deg, rgba(0, 217, 255, 0.2), rgba(77, 168, 255, 0.15));
+  background: rgba(0, 217, 255, 0.2);
   border-color: var(--accent-cyan);
   color: var(--silver-bright);
-  box-shadow: 0 0 20px rgba(0, 217, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 15px rgba(0, 217, 255, 0.3);
 }}
 
-.league-list {{
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.league-dropdown {{
+  position: relative;
 }}
 
-.league-item {{
-  padding: 10px 14px;
+.dropdown-toggle {{
+  padding: 8px 16px;
   border-radius: 8px;
-  border: 1px solid rgba(0, 217, 255, 0.15);
-  background: rgba(10, 25, 50, 0.5);
+  border: 1px solid rgba(0, 217, 255, 0.2);
+  background: rgba(10, 25, 50, 0.8);
+  color: var(--silver-bright);
+  font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }}
 
-.league-item:hover {{
-  border-color: rgba(0, 217, 255, 0.4);
-  background: rgba(10, 25, 50, 0.8);
-  transform: translateX(2px);
+.dropdown-toggle:hover {{
+  border-color: rgba(0, 217, 255, 0.5);
+  background: rgba(10, 25, 50, 1);
 }}
 
-.league-item.active {{
-  border-color: var(--accent-teal);
-  background: rgba(30, 255, 142, 0.1);
-  box-shadow: 0 0 15px rgba(30, 255, 142, 0.2);
+.dropdown-arrow {{
+  font-size: 10px;
+  transition: transform 0.2s;
 }}
 
-.league-item.disabled {{
-  opacity: 0.3;
-  cursor: not-allowed;
-  border-color: rgba(100, 100, 100, 0.1);
+.dropdown-toggle.open .dropdown-arrow {{
+  transform: rotate(180deg);
 }}
 
-.league-item.disabled:hover {{
-  transform: none;
-  border-color: rgba(100, 100, 100, 0.1);
-  background: rgba(10, 25, 50, 0.5);
-}}
-
-.league-name {{
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--silver-pale);
-}}
-
-.league-count {{
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent-cyan);
-  background: rgba(0, 217, 255, 0.1);
-  padding: 2px 8px;
-  border-radius: 4px;
-}}
-
-.main {{
-  padding: 32px;
+.dropdown-menu {{
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  background: rgba(5, 15, 30, 0.98);
+  border: 1px solid rgba(0, 217, 255, 0.3);
+  border-radius: 10px;
+  padding: 8px;
+  display: none;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  max-height: 300px;
   overflow-y: auto;
 }}
 
-.content-header {{
-  margin-bottom: 28px;
+.dropdown-menu.open {{
+  display: block;
+  animation: dropdown-slide 0.2s ease;
 }}
 
-.content-title {{
-  font-family: 'Orbitron', sans-serif;
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--silver-bright);
-  margin-bottom: 8px;
-  letter-spacing: 2px;
+@keyframes dropdown-slide {{
+  from {{ opacity: 0; transform: translateY(-10px); }}
+  to {{ opacity: 1; transform: translateY(0); }}
+}}
+
+.league-option {{
+  padding: 8px 12px;
+  border-radius: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 4px;
+}}
+
+.league-option:hover {{
+  background: rgba(0, 217, 255, 0.1);
+}}
+
+.league-option.active {{
+  background: rgba(30, 255, 142, 0.15);
+  border-left: 3px solid var(--accent-teal);
+  padding-left: 9px;
+}}
+
+.league-option.disabled {{
+  opacity: 0.3;
+  cursor: not-allowed;
+}}
+
+.league-option.disabled:hover {{
+  background: transparent;
+}}
+
+.league-option-name {{
+  font-size: 12px;
+  color: var(--silver-pale);
+}}
+
+.league-option-count {{
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--accent-cyan);
+  background: rgba(0, 217, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}}
+
+/* MAIN */
+.main {{
+  padding: 32px 24px;
+  position: relative;
+  z-index: 1;
 }}
 
 .content-subtitle {{
   font-size: 13px;
   color: var(--silver-dim);
-  letter-spacing: 1px;
+  margin-bottom: 24px;
+  letter-spacing: 0.5px;
 }}
 
 .flashcards-grid {{
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 18px;
   animation: fade-in 0.4s ease;
 }}
 
@@ -534,12 +515,11 @@ body::before {{
 .flashcard {{
   background: linear-gradient(135deg, rgba(10, 25, 50, 0.8), rgba(5, 15, 30, 0.9));
   border: 1px solid rgba(0, 217, 255, 0.2);
-  border-radius: 16px;
-  padding: 20px;
+  border-radius: 14px;
+  padding: 18px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
-  animation: slide-up 0.5s ease both;
 }}
 
 .flashcard::before {{
@@ -556,38 +536,26 @@ body::before {{
 
 .flashcard:hover {{
   border-color: rgba(0, 217, 255, 0.5);
-  transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 217, 255, 0.3);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 35px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 217, 255, 0.3);
 }}
 
 .flashcard:hover::before {{
   opacity: 1;
 }}
 
-@keyframes slide-up {{
-  from {{ opacity: 0; transform: translateY(30px); }}
-  to {{ opacity: 1; transform: translateY(0); }}
-}}
-
-.flashcard:nth-child(1) {{ animation-delay: 0.05s; }}
-.flashcard:nth-child(2) {{ animation-delay: 0.10s; }}
-.flashcard:nth-child(3) {{ animation-delay: 0.15s; }}
-.flashcard:nth-child(4) {{ animation-delay: 0.20s; }}
-.flashcard:nth-child(5) {{ animation-delay: 0.25s; }}
-.flashcard:nth-child(6) {{ animation-delay: 0.30s; }}
-
 .flashcard-header {{
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 18px;
-  padding-bottom: 14px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
   border-bottom: 1px solid rgba(0, 217, 255, 0.1);
 }}
 
 .flashcard-id {{
   font-family: 'Orbitron', sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--silver-muted);
   letter-spacing: 1px;
@@ -595,7 +563,7 @@ body::before {{
 
 .flashcard-prob {{
   font-family: 'Orbitron', sans-serif;
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 900;
   background: linear-gradient(135deg, var(--accent-cyan), var(--accent-teal));
   -webkit-background-clip: text;
@@ -605,39 +573,39 @@ body::before {{
 .bets-list {{
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }}
 
 .bet-item {{
   background: rgba(10, 25, 50, 0.6);
   border-left: 3px solid var(--accent-cyan);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 7px;
+  padding: 10px;
   transition: all 0.2s;
 }}
 
 .bet-item:hover {{
   background: rgba(10, 25, 50, 0.9);
   border-left-color: var(--accent-teal);
-  transform: translateX(4px);
+  transform: translateX(3px);
 }}
 
 .bet-match {{
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--silver-bright);
-  margin-bottom: 6px;
+  margin-bottom: 5px;
 }}
 
 .bet-market {{
-  font-size: 11px;
+  font-size: 10px;
   color: var(--silver-dim);
-  margin-bottom: 6px;
+  margin-bottom: 5px;
 }}
 
 .bet-prob {{
   font-family: 'JetBrains Mono', monospace;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--accent-teal);
 }}
@@ -645,50 +613,60 @@ body::before {{
 .empty-state {{
   grid-column: 1 / -1;
   text-align: center;
-  padding: 80px 20px;
+  padding: 60px 20px;
   background: rgba(10, 25, 50, 0.5);
   border: 1px dashed rgba(0, 217, 255, 0.3);
-  border-radius: 16px;
+  border-radius: 14px;
 }}
 
 .empty-icon {{
-  font-size: 64px;
-  margin-bottom: 16px;
+  font-size: 48px;
+  margin-bottom: 14px;
   opacity: 0.5;
 }}
 
 .empty-title {{
   font-family: 'Orbitron', sans-serif;
-  font-size: 24px;
+  font-size: 20px;
   color: var(--silver-bright);
   margin-bottom: 8px;
 }}
 
 .empty-text {{
-  font-size: 14px;
+  font-size: 13px;
   color: var(--silver-dim);
   line-height: 1.6;
 }}
 
-::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+/* MOBILE */
+@media (max-width: 768px) {{
+  .header {{ padding: 16px 16px; }}
+  .header-top {{ margin-bottom: 12px; }}
+  .brand-title {{ font-size: 18px; }}
+  .header-stats {{ gap: 12px; }}
+  .stat-value {{ font-size: 14px; }}
+  .controls {{ gap: 12px; }}
+  .threshold-pills {{ gap: 4px; }}
+  .threshold-btn {{ padding: 6px 10px; font-size: 10px; }}
+  .main {{ padding: 20px 16px; }}
+  .flashcards-grid {{ grid-template-columns: 1fr; gap: 14px; }}
+}}
+
+::-webkit-scrollbar {{ width: 5px; height: 5px; }}
 ::-webkit-scrollbar-track {{ background: transparent; }}
 ::-webkit-scrollbar-thumb {{ background: rgba(0, 217, 255, 0.3); border-radius: 3px; }}
-::-webkit-scrollbar-thumb:hover {{ background: rgba(0, 217, 255, 0.5); }}
 </style>
 </head>
 <body>
-<div class="app-container">
-  <div class="header">
-    <div class="header-brand">
+<div class="header">
+  <div class="header-top">
+    <div class="brand">
       <div class="brand-icon">⚽</div>
-      <div class="brand-text">
-        <div class="brand-title">PROBABILITY</div>
-        <div class="brand-subtitle">Betting Analytics Dashboard</div>
-      </div>
+      <div class="brand-title">PROBABILITY ENGINE</div>
     </div>
     <div class="header-stats">
       <div class="stat-item">
-        <div class="stat-label">Sets Found</div>
+        <div class="stat-label">Sets</div>
         <div class="stat-value" id="total-sets">0</div>
       </div>
       <div class="stat-item">
@@ -697,31 +675,31 @@ body::before {{
       </div>
     </div>
   </div>
-
-  <div class="sidebar">
-    <div class="sidebar-section">
-      <div class="section-label">Threshold</div>
-      <div class="threshold-buttons">
+  
+  <div class="controls">
+    <div class="control-group">
+      <div class="control-label">Threshold</div>
+      <div class="threshold-pills">
         <button class="threshold-btn" data-min="0.70" data-max="1.00" data-range="70-100%">70-100%</button>
         <button class="threshold-btn" data-min="0.60" data-max="0.70" data-range="60-70%">60-70%</button>
         <button class="threshold-btn" data-min="0.50" data-max="0.60" data-range="50-60%">50-60%</button>
         <button class="threshold-btn active" data-min="0.40" data-max="0.50" data-range="40-50%">40-50%</button>
       </div>
     </div>
-
-    <div class="sidebar-section">
-      <div class="section-label">Leagues</div>
-      <div class="league-list" id="league-list"></div>
+    
+    <div class="league-dropdown">
+      <button class="dropdown-toggle" id="league-toggle">
+        <span id="league-count-text">All Leagues</span>
+        <span class="dropdown-arrow">▼</span>
+      </button>
+      <div class="dropdown-menu" id="league-menu"></div>
     </div>
   </div>
+</div>
 
-  <div class="main">
-    <div class="content-header">
-      <div class="content-title">BET SETS</div>
-      <div class="content-subtitle" id="subtitle">Probability range: 40-50%</div>
-    </div>
-    <div class="flashcards-grid" id="flashcards-container"></div>
-  </div>
+<div class="main">
+  <div class="content-subtitle" id="subtitle">Probability range: 40-50%</div>
+  <div class="flashcards-grid" id="flashcards-container"></div>
 </div>
 
 <script>
@@ -732,36 +710,41 @@ let currentMin = 0.40;
 let currentMax = 0.50;
 
 document.addEventListener('DOMContentLoaded', () => {{
-  renderLeagues();
+  renderLeagueDropdown();
   renderFlashcards();
   attachEventListeners();
 }});
 
-function renderLeagues() {{
-  const container = document.getElementById('league-list');
-  container.innerHTML = '';
+function renderLeagueDropdown() {{
+  const menu = document.getElementById('league-menu');
+  menu.innerHTML = '';
   
   Object.entries(leagueCounts).forEach(([league, count]) => {{
-    const item = document.createElement('div');
-    item.className = 'league-item';
+    const option = document.createElement('div');
+    option.className = 'league-option';
     
     if (count === 0) {{
-      item.classList.add('disabled');
+      option.classList.add('disabled');
     }} else if (selectedLeagues.includes(league)) {{
-      item.classList.add('active');
+      option.classList.add('active');
     }}
     
-    item.innerHTML = `
-      <div class="league-name">${{league}}</div>
-      <div class="league-count">${{count}}</div>
+    option.innerHTML = `
+      <div class="league-option-name">${{league}}</div>
+      <div class="league-option-count">${{count}}</div>
     `;
     
     if (count > 0) {{
-      item.addEventListener('click', () => toggleLeague(league));
+      option.addEventListener('click', (e) => {{
+        e.stopPropagation();
+        toggleLeague(league);
+      }});
     }}
     
-    container.appendChild(item);
+    menu.appendChild(option);
   }});
+  
+  updateLeagueButtonText();
 }}
 
 function toggleLeague(league) {{
@@ -771,19 +754,24 @@ function toggleLeague(league) {{
   }} else {{
     selectedLeagues.push(league);
   }}
-  renderLeagues();
+  renderLeagueDropdown();
   renderFlashcards();
+}}
+
+function updateLeagueButtonText() {{
+  const totalLeagues = Object.keys(leagueCounts).length;
+  const selectedCount = selectedLeagues.length;
+  const text = selectedCount === totalLeagues 
+    ? 'All Leagues' 
+    : `${{selectedCount}} / ${{totalLeagues}} Leagues`;
+  document.getElementById('league-count-text').textContent = text;
 }}
 
 function renderFlashcards() {{
   const container = document.getElementById('flashcards-container');
   
-  // Filter by threshold range AND selected leagues
   const filtered = allFlashcards.filter(card => {{
-    // Check probability range
     if (card.prob < currentMin || card.prob >= currentMax) return false;
-    
-    // Check all bets are from selected leagues
     const cardLeagues = card.bets.map(b => b.league);
     return cardLeagues.every(l => selectedLeagues.includes(l));
   }});
@@ -796,8 +784,8 @@ function renderFlashcards() {{
         <div class="empty-icon">🎯</div>
         <div class="empty-title">No Sets Found</div>
         <div class="empty-text">
-          No bet sets in this probability range for the selected leagues.<br>
-          Try selecting more leagues or a different threshold.
+          No bet sets in this range for selected leagues.<br>
+          Try different filters.
         </div>
       </div>
     `;
@@ -838,6 +826,20 @@ function attachEventListeners() {{
       
       renderFlashcards();
     }});
+  }});
+  
+  const toggle = document.getElementById('league-toggle');
+  const menu = document.getElementById('league-menu');
+  
+  toggle.addEventListener('click', (e) => {{
+    e.stopPropagation();
+    toggle.classList.toggle('open');
+    menu.classList.toggle('open');
+  }});
+  
+  document.addEventListener('click', () => {{
+    toggle.classList.remove('open');
+    menu.classList.remove('open');
   }});
 }}
 </script>
