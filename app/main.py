@@ -374,9 +374,18 @@ if "selected_league" not in st.session_state:
 with left_col:
     st.markdown('<div class="league-sidebar">', unsafe_allow_html=True)
 
-    hidden = st.text_input("selected_league_hidden", value=st.session_state["selected_league"], label_visibility="hidden", key="league_hidden")
+    hidden = st.text_input(
+        "selected_league_hidden",
+        value=st.session_state["selected_league"],
+        label_visibility="hidden",
+        key="league_hidden"
+    )
 
-    league_html = "<div id='league-container'>"
+    # Build HTML + JS safely inside one triple-quoted string
+    league_html = """
+    <div id="league-container">
+    """
+
     for code in COMPETITIONS.keys():
         has = league_has_matches.get(code, False)
         classes = "league-btn"
@@ -384,21 +393,32 @@ with left_col:
             classes += " disabled"
         if code == st.session_state["selected_league"]:
             classes += " active"
+
         league_html += f"""
         <button class="{classes}" data-league="{code}" {'disabled' if not has else ''}>
             {code}
         </button>
         """
-    league_html += ""
+
+    league_html += """
     </div>
+
     <script>
-    const btns = Array.from(document.querySelectorAll('#league-container .league-btn:not(.disabled)'));
-    const input = window.parent.document.querySelector('input[data-testid="stTextInput"][aria-label="selected_league_hidden"]');
+    const btns = Array.from(
+        document.querySelectorAll('#league-container .league-btn:not(.disabled)')
+    );
+
+    const input = window.parent.document.querySelector(
+        'input[data-testid="stTextInput"][aria-label="selected_league_hidden"]'
+    );
+
     btns.forEach(btn => {
         btn.addEventListener('click', () => {
             btns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
+
             const league = btn.getAttribute('data-league');
+
             if (input) {
                 input.value = league;
                 const event = new Event('input', { bubbles: true });
@@ -406,4 +426,9 @@ with left_col:
             }
         });
     });
-    </script
+    </script>
+    """
+
+    components.html(league_html, height=450, scrolling=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
