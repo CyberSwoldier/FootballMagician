@@ -1,7 +1,12 @@
 """
-Football Betting Probability Dashboard v3
+Football Betting Probability Dashboard v2
 ==========================================
-Fixed: No freezing, all filtering happens client-side in JavaScript
+Enhanced with:
+- Precise threshold ranges (40-50%, 50-60%, etc.)
+- Diverse markets (BTTS, corners, shots, fouls, cards)
+- Proper league filtering
+- Loading states & skeleton loaders
+- Performance optimizations
 """
 
 import streamlit as st
@@ -13,6 +18,10 @@ from scipy.stats import poisson
 import itertools
 import time
 import json
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONFIG
+# ══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(page_title="⚽ Betting Dashboard", layout="wide", initial_sidebar_state="collapsed")
 
@@ -29,6 +38,71 @@ COMPETITIONS = {
     "Champions League": 2001,
 }
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ENHANCED POISSON MODEL WITH DIVERSE MARKETS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def score_matrix(home_xg: float, away_xg: float, max_goals: int = 6) -> dict:
+    matrix = {}
+    for h in range(max_goals + 1):
+        for a in range(max_goals + 1):
+            matrix[(h, a)] = poisson.pmf(h, home_xg) * poisson.pmf(a, away_xg)
+    return matrix
+
+def calculate_diverse_markets(home_xg: float, away_xg: float) -> dict:
+    """Calculate probabilities for diverse betting markets."""
+    matrix = score_matrix(home_xg, away_xg)
+    
+    # ── Standard goal markets ──────────────────────────────────────────────────
+    markets = {
+        "Over 0.5 Goals": sum(p for (h, a), p in matrix.items() if h + a > 0),
+        "Over 1.5 Goals": sum(p for (h, a), p in matrix.items() if h + a > 1),
+        "Over 2.5 Goals": sum(p for (h, a), p in matrix.items() if h + a > 2),
+        "Under 2.5 Goals": sum(p for (h, a), p in matrix.items() if h + a < 3),
+        "Under 3.5 Goals": sum(p for (h, a), p in matrix.items() if h + a < 4),
+        "BTTS": sum(p for (h, a), p in matrix.items() if h >= 1 and a >= 1),
+        "BTTS & Over 2.5": sum(p for (h, a), p in matrix.items() if h >= 1 and a >= 1 and h + a > 2),
+    }
+    
+    # ── Derived markets (estimated from xG) ───────────────────────────────────
+    total_xg = home_xg + away_xg
+    
+    # Corners (roughly 10-11 corners per game, correlated with xG)
+    avg_corners = 10 + (total_xg - 2.5) * 1.5  # More attacking = more corners
+    markets["Over 9.5 Corners"] = 1 - poisson.cdf(9, avg_corners)
+    markets["Over 10.5 Corners"] = 1 - poisson.cdf(10, avg_corners)
+    markets["Under 11.5 Corners"] = poisson.cdf(11, avg_corners)
+    
+    # Shots on target (roughly 4-6 per team, correlated with xG)
+    home_shots = max(3, home_xg * 3)
+    away_shots = max(3, away_xg * 3)
+    total_shots = home_shots + away_shots
+    markets["Over 10.5 Shots on Target"] = 1 - poisson.cdf(10, total_shots)
+    markets["Over 12.5 Shots on Target"] = 1 - poisson.cdf(12, total_shots)
+    
+    # Fouls (roughly 20-25 per game, slightly higher in competitive matches)
+    avg_fouls = 22 + abs(home_xg - away_xg) * 2  # More competitive = more fouls
+    markets["Over 24.5 Fouls"] = 1 - poisson.cdf(24, avg_fouls)
+    markets["Under 26.5 Fouls"] = poisson.cdf(26, avg_fouls)
+    
+    # Cards (roughly 3-4 per game)
+    avg_cards = 3.5 + abs(home_xg - away_xg) * 0.5
+    markets["Over 3.5 Cards"] = 1 - poisson.cdf(3, avg_cards)
+    markets["Under 5.5 Cards"] = poisson.cdf(5, avg_cards)
+    
+    # Result markets
+    markets["Home Win"] = sum(p for (h, a), p in matrix.items() if h > a)
+    markets["Away Win"] = sum(p for (h, a), p in matrix.items() if h < a)
+    markets["Draw"] = sum(p for (h, a), p in matrix.items() if h == a)
+    markets["Double Chance 1X"] = sum(p for (h, a), p in matrix.items() if h >= a)
+    markets["Double Chance X2"] = sum(p for (h, a), p in matrix.items() if h <= a)
+    
+    return markets
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DATA FETCHING (Same as before)
+# ══════════════════════════════════════════════════════════════════════════════
+
 def api_get(endpoint: str, params: dict = None) -> dict:
     if not API_KEY:
         return {}
@@ -41,54 +115,6 @@ def api_get(endpoint: str, params: dict = None) -> dict:
         return resp.json() if resp.status_code == 200 else {}
     except:
         return {}
-
-def score_matrix(home_xg: float, away_xg: float, max_goals: int = 6) -> dict:
-    matrix = {}
-    for h in range(max_goals + 1):
-        for a in range(max_goals + 1):
-            matrix[(h, a)] = poisson.pmf(h, home_xg) * poisson.pmf(a, away_xg)
-    return matrix
-
-def calculate_diverse_markets(home_xg: float, away_xg: float) -> dict:
-    matrix = score_matrix(home_xg, away_xg)
-    
-    markets = {
-        "Over 0.5 Goals": sum(p for (h, a), p in matrix.items() if h + a > 0),
-        "Over 1.5 Goals": sum(p for (h, a), p in matrix.items() if h + a > 1),
-        "Over 2.5 Goals": sum(p for (h, a), p in matrix.items() if h + a > 2),
-        "Under 2.5 Goals": sum(p for (h, a), p in matrix.items() if h + a < 3),
-        "Under 3.5 Goals": sum(p for (h, a), p in matrix.items() if h + a < 4),
-        "BTTS": sum(p for (h, a), p in matrix.items() if h >= 1 and a >= 1),
-        "BTTS & Over 2.5": sum(p for (h, a), p in matrix.items() if h >= 1 and a >= 1 and h + a > 2),
-    }
-    
-    total_xg = home_xg + away_xg
-    avg_corners = 10 + (total_xg - 2.5) * 1.5
-    markets["Over 9.5 Corners"] = 1 - poisson.cdf(9, avg_corners)
-    markets["Over 10.5 Corners"] = 1 - poisson.cdf(10, avg_corners)
-    markets["Under 11.5 Corners"] = poisson.cdf(11, avg_corners)
-    
-    home_shots = max(3, home_xg * 3)
-    away_shots = max(3, away_xg * 3)
-    total_shots = home_shots + away_shots
-    markets["Over 10.5 Shots on Target"] = 1 - poisson.cdf(10, total_shots)
-    markets["Over 12.5 Shots on Target"] = 1 - poisson.cdf(12, total_shots)
-    
-    avg_fouls = 22 + abs(home_xg - away_xg) * 2
-    markets["Over 24.5 Fouls"] = 1 - poisson.cdf(24, avg_fouls)
-    markets["Under 26.5 Fouls"] = poisson.cdf(26, avg_fouls)
-    
-    avg_cards = 3.5 + abs(home_xg - away_xg) * 0.5
-    markets["Over 3.5 Cards"] = 1 - poisson.cdf(3, avg_cards)
-    markets["Under 5.5 Cards"] = poisson.cdf(5, avg_cards)
-    
-    markets["Home Win"] = sum(p for (h, a), p in matrix.items() if h > a)
-    markets["Away Win"] = sum(p for (h, a), p in matrix.items() if h < a)
-    markets["Draw"] = sum(p for (h, a), p in matrix.items() if h == a)
-    markets["Double Chance 1X"] = sum(p for (h, a), p in matrix.items() if h >= a)
-    markets["Double Chance X2"] = sum(p for (h, a), p in matrix.items() if h <= a)
-    
-    return markets
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_all_fixtures() -> pd.DataFrame:
@@ -164,15 +190,37 @@ def get_mock_fixtures() -> pd.DataFrame:
         })
     return pd.DataFrame(fixtures)
 
-def generate_all_flashcards(fixtures: pd.DataFrame) -> list:
-    """Generate ALL bet sets across all probability ranges (let JS filter)."""
+# ══════════════════════════════════════════════════════════════════════════════
+# ENHANCED BET SET GENERATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_flashcards_by_range(fixtures: pd.DataFrame, min_prob: float, max_prob: float, 
+                                  selected_leagues: list = None) -> list:
+    """
+    Generate bet sets that fall within a specific probability range.
+    
+    Args:
+        fixtures: DataFrame with fixtures
+        min_prob: Minimum combined probability (e.g., 0.40)
+        max_prob: Maximum combined probability (e.g., 0.50)
+        selected_leagues: List of leagues to include (filters out others)
+    """
+    # Filter by selected leagues FIRST
+    if selected_leagues:
+        fixtures = fixtures[fixtures['league'].isin(selected_leagues)].copy()
+    
+    if fixtures.empty:
+        return []
+    
+    # Build individual bets with DIVERSE markets
     all_bets = []
     for _, row in fixtures.iterrows():
         markets = calculate_diverse_markets(row["home_xg"], row["away_xg"])
         match_name = f"{row['home']} vs {row['away']}"
         
+        # Only include bets with reasonable individual probability (40-95%)
         for market, prob in markets.items():
-            if 0.40 <= prob <= 0.95:
+            if 0.40 <= prob <= 0.95:  # Filter out extreme probabilities
                 all_bets.append({
                     "match": match_name,
                     "market": market,
@@ -183,24 +231,28 @@ def generate_all_flashcards(fixtures: pd.DataFrame) -> list:
     if len(all_bets) < 3:
         return []
     
-    # Generate ALL combinations (JS will filter by range)
+    # Generate 3-match combinations within the target range
     results = []
     for combo in itertools.combinations(all_bets, 3):
+        # Must be from 3 different matches
         if len({b["match"] for b in combo}) < 3:
             continue
         
         combined = combo[0]["prob"] * combo[1]["prob"] * combo[2]["prob"]
         
-        # Include if >= 40% (JS handles upper bounds)
-        if combined >= 0.40:
+        # CRITICAL: Only include if within the range
+        if min_prob <= combined < max_prob:
             results.append({"bets": list(combo), "prob": combined})
         
-        if len(results) >= 200:  # Generate more sets for all ranges
+        if len(results) >= 100:  # Limit to avoid long computation
             break
     
-    return sorted(results, key=lambda x: x["prob"], reverse=True)
+    return sorted(results, key=lambda x: x["prob"], reverse=True)[:18]
 
-# Load data
+# ══════════════════════════════════════════════════════════════════════════════
+# LOAD DATA
+# ══════════════════════════════════════════════════════════════════════════════
+
 use_mock = st.sidebar.checkbox("📊 Use Mock Data", value=not bool(API_KEY))
 
 with st.spinner("Loading fixtures..."):
@@ -215,12 +267,42 @@ with st.spinner("Loading fixtures..."):
 
 league_counts = all_fixtures['league'].value_counts().to_dict()
 
-# Generate ALL flashcards once (JavaScript will filter by range)
-all_flashcards = generate_all_flashcards(all_fixtures)
+if 'selected_threshold' not in st.session_state:
+    st.session_state.selected_threshold = 0.40
+if 'selected_leagues' not in st.session_state:
+    st.session_state.selected_leagues = list(league_counts.keys())
 
-flashcards_json = json.dumps(all_flashcards)
+# ══════════════════════════════════════════════════════════════════════════════
+# GENERATE FLASHCARDS WITH PROPER RANGES
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Define threshold ranges
+THRESHOLD_RANGES = {
+    0.70: (0.70, 1.00),  # 70-100%
+    0.60: (0.60, 0.70),  # 60-70%
+    0.50: (0.50, 0.60),  # 50-60%
+    0.40: (0.40, 0.50),  # 40-50%
+}
+
+threshold = st.session_state.selected_threshold
+min_prob, max_prob = THRESHOLD_RANGES[threshold]
+
+flashcards_data = generate_flashcards_by_range(
+    all_fixtures,
+    min_prob,
+    max_prob,
+    st.session_state.selected_leagues
+)
+
+# Convert to JSON for JavaScript
+flashcards_json = json.dumps(flashcards_data)
 league_counts_json = json.dumps(league_counts)
-all_leagues_json = json.dumps(list(league_counts.keys()))
+selected_leagues_json = json.dumps(st.session_state.selected_leagues)
+threshold_range_text = f"{int(min_prob*100)}-{int(max_prob*100)}%"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HTML DASHBOARD
+# ══════════════════════════════════════════════════════════════════════════════
 
 html_content = f"""
 <!DOCTYPE html>
@@ -274,6 +356,7 @@ body::before {{
   min-height: 100vh;
 }}
 
+/* Header */
 .header {{
   grid-column: 1 / -1;
   background: linear-gradient(135deg, rgba(5, 15, 30, 0.95), rgba(10, 25, 50, 0.92));
@@ -361,6 +444,7 @@ body::before {{
   text-shadow: 0 0 10px rgba(0, 217, 255, 0.5);
 }}
 
+/* Sidebar */
 .sidebar {{
   background: linear-gradient(180deg, rgba(5, 15, 30, 0.9), rgba(10, 25, 50, 0.85));
   border-right: 1px solid rgba(0, 217, 255, 0.15);
@@ -495,6 +579,7 @@ body::before {{
   border-radius: 4px;
 }}
 
+/* Main content */
 .main {{
   padding: 32px;
   overflow-y: auto;
@@ -519,16 +604,38 @@ body::before {{
   letter-spacing: 1px;
 }}
 
+/* Loading skeleton */
+.skeleton-grid {{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
+}}
+
+.skeleton-card {{
+  background: linear-gradient(135deg, rgba(10, 25, 50, 0.5), rgba(5, 15, 30, 0.6));
+  border: 1px solid rgba(0, 217, 255, 0.1);
+  border-radius: 16px;
+  padding: 20px;
+  height: 320px;
+  animation: pulse-skeleton 1.5s ease-in-out infinite;
+}}
+
+@keyframes pulse-skeleton {{
+  0%, 100% {{ opacity: 0.5; }}
+  50% {{ opacity: 0.8; }}
+}}
+
+/* Flashcards grid */
 .flashcards-grid {{
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 20px;
-  animation: fade-in 0.4s ease;
+  animation: fade-in 0.6s ease;
 }}
 
 @keyframes fade-in {{
-  from {{ opacity: 0; }}
-  to {{ opacity: 1; }}
+  from {{ opacity: 0; transform: translateY(20px); }}
+  to {{ opacity: 1; transform: translateY(0); }}
 }}
 
 .flashcard {{
@@ -600,6 +707,7 @@ body::before {{
   background: linear-gradient(135deg, var(--accent-cyan), var(--accent-teal));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 20px rgba(0, 217, 255, 0.5);
 }}
 
 .bets-list {{
@@ -693,7 +801,7 @@ body::before {{
       </div>
       <div class="stat-item">
         <div class="stat-label">Range</div>
-        <div class="stat-value" id="range-display">40-50%</div>
+        <div class="stat-value" id="range-display">{threshold_range_text}</div>
       </div>
     </div>
   </div>
@@ -702,10 +810,10 @@ body::before {{
     <div class="sidebar-section">
       <div class="section-label">Threshold</div>
       <div class="threshold-buttons">
-        <button class="threshold-btn" data-min="0.70" data-max="1.00" data-range="70-100%">70-100%</button>
-        <button class="threshold-btn" data-min="0.60" data-max="0.70" data-range="60-70%">60-70%</button>
-        <button class="threshold-btn" data-min="0.50" data-max="0.60" data-range="50-60%">50-60%</button>
-        <button class="threshold-btn active" data-min="0.40" data-max="0.50" data-range="40-50%">40-50%</button>
+        <button class="threshold-btn" data-threshold="0.70" data-range="70-100%">70-100%</button>
+        <button class="threshold-btn" data-threshold="0.60" data-range="60-70%">60-70%</button>
+        <button class="threshold-btn" data-threshold="0.50" data-range="50-60%">50-60%</button>
+        <button class="threshold-btn active" data-threshold="0.40" data-range="40-50%">40-50%</button>
       </div>
     </div>
 
@@ -718,22 +826,28 @@ body::before {{
   <div class="main">
     <div class="content-header">
       <div class="content-title">BET SETS</div>
-      <div class="content-subtitle" id="subtitle">Probability range: 40-50%</div>
+      <div class="content-subtitle" id="subtitle">Probability range: {threshold_range_text}</div>
     </div>
-    <div class="flashcards-grid" id="flashcards-container"></div>
+    <div class="flashcards-grid" id="flashcards-container">
+      <!-- Loading skeleton initially -->
+      <div class="skeleton-grid">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
 let allFlashcards = {flashcards_json};
 let leagueCounts = {league_counts_json};
-let selectedLeagues = {all_leagues_json};
-let currentMin = 0.40;
-let currentMax = 0.50;
+let selectedLeagues = {selected_leagues_json};
+let isLoading = false;
 
 document.addEventListener('DOMContentLoaded', () => {{
   renderLeagues();
-  renderFlashcards();
+  setTimeout(renderFlashcards, 300); // Small delay for skeleton effect
   attachEventListeners();
 }});
 
@@ -757,7 +871,9 @@ function renderLeagues() {{
     `;
     
     if (count > 0) {{
-      item.addEventListener('click', () => toggleLeague(league));
+      item.addEventListener('click', () => {{
+        toggleLeague(league);
+      }});
     }}
     
     container.appendChild(item);
@@ -772,19 +888,29 @@ function toggleLeague(league) {{
     selectedLeagues.push(league);
   }}
   renderLeagues();
-  renderFlashcards();
+  showLoading();
+  setTimeout(() => {{
+    renderFlashcards();
+  }}, 300);
+}}
+
+function showLoading() {{
+  const container = document.getElementById('flashcards-container');
+  container.innerHTML = `
+    <div class="skeleton-card"></div>
+    <div class="skeleton-card"></div>
+    <div class="skeleton-card"></div>
+  `;
+  isLoading = true;
 }}
 
 function renderFlashcards() {{
   const container = document.getElementById('flashcards-container');
   
-  // Filter by threshold range AND selected leagues
+  // Filter by selected leagues only
   const filtered = allFlashcards.filter(card => {{
-    // Check probability range
-    if (card.prob < currentMin || card.prob >= currentMax) return false;
-    
-    // Check all bets are from selected leagues
     const cardLeagues = card.bets.map(b => b.league);
+    // Only show if ALL bets are from selected leagues
     return cardLeagues.every(l => selectedLeagues.includes(l));
   }});
   
@@ -796,11 +922,12 @@ function renderFlashcards() {{
         <div class="empty-icon">🎯</div>
         <div class="empty-title">No Sets Found</div>
         <div class="empty-text">
-          No bet sets in this probability range for the selected leagues.<br>
+          No bet sets found in this probability range for the selected leagues.<br>
           Try selecting more leagues or a different threshold.
         </div>
       </div>
     `;
+    isLoading = false;
     return;
   }}
   
@@ -821,22 +948,32 @@ function renderFlashcards() {{
       </div>
     </div>
   `).join('');
+  
+  isLoading = false;
 }}
 
 function attachEventListeners() {{
   document.querySelectorAll('.threshold-btn').forEach(btn => {{
     btn.addEventListener('click', () => {{
+      if (isLoading) return;
+      
       document.querySelectorAll('.threshold-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       
-      currentMin = parseFloat(btn.dataset.min);
-      currentMax = parseFloat(btn.dataset.max);
       const range = btn.dataset.range;
-      
       document.getElementById('subtitle').textContent = `Probability range: ${{range}}`;
       document.getElementById('range-display').textContent = range;
       
-      renderFlashcards();
+      // Show loading immediately
+      showLoading();
+      
+      // Simulate fetch delay (in real app, this triggers Python rerun)
+      setTimeout(() => {{
+        window.parent.postMessage({{
+          type: 'streamlit:setComponentValue',
+          value: {{threshold: parseFloat(btn.dataset.threshold)}}
+        }}, '*');
+      }}, 100);
     }});
   }});
 }}
