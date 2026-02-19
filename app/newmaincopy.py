@@ -27,6 +27,8 @@ COMPETITIONS = {
     "Ligue 1": 2015,
     "Primeira Liga": 2017,
     "Champions League": 2001,
+    "Europa League": 2146,
+    "Conference League": 2149,
 }
 
 def api_get(endpoint: str, params: dict = None) -> dict:
