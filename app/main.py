@@ -8,11 +8,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from scipy.stats import poisson
 import itertools
 import time
 import json
+from pathlib import Path
 
 st.set_page_config(page_title="⚽ Betting Dashboard", layout="wide", initial_sidebar_state="collapsed")
 
@@ -30,6 +31,23 @@ COMPETITIONS = {
     "Europa League": 2146,
     "Conference League": 2149,
 }
+
+# Archive setup
+ARCHIVE_DIR = Path("bet_sets_archive")
+ARCHIVE_DIR.mkdir(exist_ok=True)
+
+def save_sets_to_archive(sets: list, fixtures_date: str):
+    """Save sets to archive for tracking."""
+    archive_file = ARCHIVE_DIR / f"sets_{fixtures_date}.json"
+    archive_data = {
+        "date": fixtures_date,
+        "generated_at": datetime.now().isoformat(),
+        "total_sets": len(sets),
+        "sets": sets,
+    }
+    with open(archive_file, 'w') as f:
+        json.dump(archive_data, f, indent=2)
+    return archive_file
 
 def api_get(endpoint: str, params: dict = None) -> dict:
     if not API_KEY:
@@ -114,6 +132,7 @@ def get_all_fixtures() -> pd.DataFrame:
                 "home_id": home_team.get("id", 0),
                 "away_id": away_team.get("id", 0),
                 "league": league_name,
+                "fixture_id": match.get("id", 0),
             })
         time.sleep(0.2)
     
@@ -162,7 +181,8 @@ def get_mock_fixtures() -> pd.DataFrame:
         fixtures.append({
             "home": home, "away": away,
             "home_id": hash(home) % 10000, "away_id": hash(away) % 10000,
-            "home_xg": home_xg, "away_xg": away_xg, "league": league
+            "home_xg": home_xg, "away_xg": away_xg, "league": league,
+            "fixture_id": hash(f"{home}{away}") % 1000000,
         })
     return pd.DataFrame(fixtures)
 
@@ -177,6 +197,7 @@ def generate_all_flashcards(fixtures: pd.DataFrame) -> list:
             if 0.40 <= prob <= 0.95:
                 all_bets.append({
                     "match": match_name,
+                    "match_id": str(row.get("fixture_id", "")),
                     "market": market,
                     "prob": prob,
                     "league": row["league"]
@@ -195,7 +216,11 @@ def generate_all_flashcards(fixtures: pd.DataFrame) -> list:
         
         # Include if >= 40% (JS handles upper bounds)
         if combined >= 0.40:
-            results.append({"bets": list(combo), "prob": combined})
+            results.append({
+                "bets": list(combo), 
+                "prob": combined,
+                "set_id": hash(str(combo)) % 1000000,
+            })
         
         if len(results) >= 200:  # Generate more sets for all ranges
             break
@@ -217,12 +242,30 @@ with st.spinner("Loading fixtures..."):
 
 league_counts = all_fixtures['league'].value_counts().to_dict()
 
-
-
-
-
 # Generate ALL flashcards once (JavaScript will filter by range)
 all_flashcards = generate_all_flashcards(all_fixtures)
+
+# Download button in sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader("💾 Save Today's Sets")
+
+if st.sidebar.button("Save & Download", use_container_width=True):
+    today_str = date.today().strftime("%Y-%m-%d")
+    save_sets_to_archive(all_flashcards, today_str)
+    
+    st.sidebar.download_button(
+        label="⬇️ Download JSON",
+        data=json.dumps(all_flashcards, indent=2),
+        file_name=f"bet_sets_{today_str}.json",
+        mime="application/json",
+        use_container_width=True
+    )
+    st.sidebar.success("✅ Saved to archive!")
+
+# Link to auto-check tab
+st.sidebar.markdown("---")
+if st.sidebar.button("📊 Auto-Check Results", use_container_width=True):
+    st.switch_page("pages/auto_check.py")
 
 flashcards_json = json.dumps(all_flashcards)
 league_counts_json = json.dumps(league_counts)
