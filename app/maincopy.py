@@ -27,6 +27,8 @@ COMPETITIONS = {
     "Ligue 1": 2015,
     "Primeira Liga": 2017,
     "Champions League": 2001,
+    "Europa League": 2146,
+    "Conference League": 2149,
 }
 
 def api_get(endpoint: str, params: dict = None) -> dict:
@@ -214,6 +216,10 @@ with st.spinner("Loading fixtures..."):
                 all_fixtures["away_xg"] = all_fixtures["away_id"].apply(lambda x: get_team_xg(x, False))
 
 league_counts = all_fixtures['league'].value_counts().to_dict()
+
+
+
+
 
 # Generate ALL flashcards once (JavaScript will filter by range)
 all_flashcards = generate_all_flashcards(all_fixtures)
