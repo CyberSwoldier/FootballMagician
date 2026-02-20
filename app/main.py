@@ -1,3 +1,4 @@
+
 """
 Football Betting Probability Dashboard v3
 ==========================================
@@ -111,18 +112,18 @@ def calculate_diverse_markets(home_xg: float, away_xg: float) -> dict:
     return markets
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def get_all_fixtures(target_date: date) -> pd.DataFrame:
+def get_all_fixtures() -> pd.DataFrame:
     if not API_KEY:
         return get_mock_fixtures()
     
-    date_str = target_date.strftime("%Y-%m-%d")
-    next_date_str = (target_date + timedelta(days=1)).strftime("%Y-%m-%d")
+    today = date.today().strftime("%Y-%m-%d")
+    tomorrow = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
     all_fixtures = []
     
     for league_name, comp_id in COMPETITIONS.items():
-        data = api_get(f"competitions/{comp_id}/matches", {"dateFrom": date_str, "dateTo": next_date_str})
+        data = api_get(f"competitions/{comp_id}/matches", {"dateFrom": today, "dateTo": tomorrow})
         for match in data.get("matches", []):
-            if match.get("status") not in ["SCHEDULED", "TIMED", "FINISHED"]:
+            if match.get("status") not in ["SCHEDULED", "TIMED"]:
                 continue
             home_team = match.get("homeTeam", {})
             away_team = match.get("awayTeam", {})
@@ -133,7 +134,6 @@ def get_all_fixtures(target_date: date) -> pd.DataFrame:
                 "away_id": away_team.get("id", 0),
                 "league": league_name,
                 "fixture_id": match.get("id", 0),
-                "status": match.get("status", "SCHEDULED"),
             })
         time.sleep(0.2)
     
@@ -228,48 +228,6 @@ def generate_all_flashcards(fixtures: pd.DataFrame) -> list:
     
     return sorted(results, key=lambda x: x["prob"], reverse=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# DATE NAVIGATION
-# ══════════════════════════════════════════════════════════════════════════════
-
-# Initialize session state for selected date
-if 'selected_date' not in st.session_state:
-    st.session_state.selected_date = date.today()
-
-# Date navigation in sidebar
-st.sidebar.markdown("### 📅 Date Navigation")
-
-col1, col2, col3 = st.sidebar.columns(3)
-with col1:
-    if st.button("◀ Prev", use_container_width=True):
-        st.session_state.selected_date -= timedelta(days=1)
-        st.rerun()
-with col2:
-    if st.button("Today", use_container_width=True):
-        st.session_state.selected_date = date.today()
-        st.rerun()
-with col3:
-    if st.button("Next ▶", use_container_width=True):
-        st.session_state.selected_date += timedelta(days=1)
-        st.rerun()
-
-current_date = st.session_state.selected_date
-current_date_str = current_date.strftime("%Y-%m-%d")
-is_today = current_date == date.today()
-is_yesterday = current_date == date.today() - timedelta(days=1)
-is_future = current_date > date.today()
-
-# Display current date
-st.sidebar.markdown(f"**Viewing:** {current_date.strftime('%B %d, %Y')}")
-if is_today:
-    st.sidebar.info("📍 Today's matches")
-elif is_yesterday:
-    st.sidebar.info("📍 Yesterday's matches (auto-checking results)")
-elif is_future:
-    st.sidebar.info("📍 Future matches")
-
-st.sidebar.markdown("---")
-
 # Load data
 use_mock = st.sidebar.checkbox("📊 Use Mock Data", value=not bool(API_KEY))
 
@@ -277,7 +235,7 @@ with st.spinner("Loading fixtures..."):
     if use_mock:
         all_fixtures = get_mock_fixtures()
     else:
-        all_fixtures = get_all_fixtures(current_date)
+        all_fixtures = get_all_fixtures()
         if "home_xg" not in all_fixtures.columns:
             with st.spinner("Calculating xG..."):
                 all_fixtures["home_xg"] = all_fixtures["home_id"].apply(lambda x: get_team_xg(x, True))
@@ -288,89 +246,18 @@ league_counts = all_fixtures['league'].value_counts().to_dict()
 # Generate ALL flashcards once (JavaScript will filter by range)
 all_flashcards = generate_all_flashcards(all_fixtures)
 
-# Auto-check yesterday's results
-if is_yesterday and not use_mock:
-    with st.spinner("Auto-checking yesterday's results..."):
-        for card in all_flashcards:
-            if not card.get("result"):
-                # Check each bet in the set
-                all_correct = True
-                any_pending = False
-                
-                for bet in card["bets"]:
-                    match_id = bet.get("match_id", "")
-                    if match_id:
-                        # Fetch match result
-                        headers = {"X-Auth-Token": API_KEY}
-                        try:
-                            resp = requests.get(f"{BASE_URL}/matches/{match_id}", headers=headers, timeout=5)
-                            if resp.status_code == 200:
-                                data = resp.json()
-                                match = data if isinstance(data, dict) and "status" in data else data.get("match", data)
-                                
-                                if match.get("status") == "FINISHED":
-                                    score = match.get("score", {}).get("fullTime", {})
-                                    home_score = score.get("home", 0)
-                                    away_score = score.get("away", 0)
-                                    total = home_score + away_score
-                                    market = bet["market"]
-                                    
-                                    # Check if bet won
-                                    bet_won = False
-                                    if "Over 0.5 Goals" in market:
-                                        bet_won = total > 0
-                                    elif "Over 1.5 Goals" in market:
-                                        bet_won = total > 1
-                                    elif "Over 2.5 Goals" in market:
-                                        bet_won = total > 2
-                                    elif "Under 2.5 Goals" in market:
-                                        bet_won = total < 3
-                                    elif "Under 3.5 Goals" in market:
-                                        bet_won = total < 4
-                                    elif "BTTS" in market:
-                                        bet_won = home_score >= 1 and away_score >= 1
-                                    elif "Home Win" in market:
-                                        bet_won = home_score > away_score
-                                    elif "Away Win" in market:
-                                        bet_won = away_score > home_score
-                                    elif "Draw" in market:
-                                        bet_won = home_score == away_score
-                                    elif "Double Chance 1X" in market:
-                                        bet_won = home_score >= away_score
-                                    elif "Double Chance X2" in market:
-                                        bet_won = home_score <= away_score
-                                    else:
-                                        # Can't auto-check corners/shots/fouls
-                                        any_pending = True
-                                        continue
-                                    
-                                    if not bet_won:
-                                        all_correct = False
-                                        break
-                                else:
-                                    any_pending = True
-                        except:
-                            any_pending = True
-                
-                # Mark the set
-                if any_pending:
-                    card["result"] = "pending"
-                elif all_correct:
-                    card["result"] = "correct"
-                else:
-                    card["result"] = "incorrect"
-
 # Download button in sidebar
 st.sidebar.markdown("---")
 st.sidebar.subheader("💾 Save Today's Sets")
 
 if st.sidebar.button("Save & Download", use_container_width=True):
-    save_sets_to_archive(all_flashcards, current_date_str)
+    today_str = date.today().strftime("%Y-%m-%d")
+    save_sets_to_archive(all_flashcards, today_str)
     
     st.sidebar.download_button(
         label="⬇️ Download JSON",
         data=json.dumps(all_flashcards, indent=2),
-        file_name=f"bet_sets_{current_date_str}.json",
+        file_name=f"bet_sets_{today_str}.json",
         mime="application/json",
         use_container_width=True
     )
@@ -384,7 +271,6 @@ if st.sidebar.button("📊 Auto-Check Results", use_container_width=True):
 flashcards_json = json.dumps(all_flashcards)
 league_counts_json = json.dumps(league_counts)
 all_leagues_json = json.dumps(list(league_counts.keys()))
-is_yesterday_js = "true" if is_yesterday else "false"
 
 html_content = f"""
 <!DOCTYPE html>
@@ -894,7 +780,6 @@ let leagueCounts = {league_counts_json};
 let selectedLeagues = {all_leagues_json};
 let currentMin = 0.40;
 let currentMax = 0.50;
-let isYesterday = {is_yesterday_js};
 
 document.addEventListener('DOMContentLoaded', () => {{
   renderLeagues();
@@ -969,29 +854,8 @@ function renderFlashcards() {{
     return;
   }}
   
-  container.innerHTML = filtered.map((card, i) => {{
-    // Determine border color based on result
-    let borderColor = 'rgba(0, 217, 255, 0.2)';
-    let borderColorHover = 'rgba(0, 217, 255, 0.5)';
-    let resultIcon = '';
-    
-    if (isYesterday && card.result) {{
-      if (card.result === 'correct') {{
-        borderColor = 'rgba(30, 255, 142, 0.6)';
-        borderColorHover = 'rgba(30, 255, 142, 0.8)';
-        resultIcon = '<div style="position: absolute; top: 10px; right: 10px; font-size: 24px;">🟢</div>';
-      }} else if (card.result === 'incorrect') {{
-        borderColor = 'rgba(255, 107, 53, 0.6)';
-        borderColorHover = 'rgba(255, 107, 53, 0.8)';
-        resultIcon = '<div style="position: absolute; top: 10px; right: 10px; font-size: 24px;">🔴</div>';
-      }}
-    }}
-    
-    return `
-    <div class="flashcard" style="border-color: ${{borderColor}};" 
-         onmouseover="this.style.borderColor='${{borderColorHover}}';"
-         onmouseout="this.style.borderColor='${{borderColor}}';">
-      ${{resultIcon}}
+  container.innerHTML = filtered.map((card, i) => `
+    <div class="flashcard">
       <div class="flashcard-header">
         <div class="flashcard-id">SET #${{String(i + 1).padStart(2, '0')}}</div>
         <div class="flashcard-prob">${{(card.prob * 100).toFixed(1)}}%</div>
@@ -1006,8 +870,7 @@ function renderFlashcards() {{
         `).join('')}}
       </div>
     </div>
-  `;
-  }}).join('');
+  `).join('');
 }}
 
 function attachEventListeners() {{
