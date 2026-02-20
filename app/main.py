@@ -218,45 +218,6 @@ with st.spinner("Loading fixtures..."):
 league_counts = all_fixtures['league'].value_counts().to_dict()
 
 
-#save button
-# Save and download buttons
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        if st.button("💾 Save to Archive", type="primary"):
-            save_sets_to_archive(all_flashcards, date.today().isoformat())
-            st.success(f"✅ Saved {len(all_flashcards)} sets to archive!")
-    
-    with col2:
-        # Download as CSV
-        if all_flashcards:
-            csv_data = []
-            for i, card in enumerate(all_flashcards[:50], 1):  # Top 50
-                for bet in card['bets']:
-                    csv_data.append({
-                        'Set_Number': i,
-                        'Combined_Probability': f"{card['prob']*100:.1f}%",
-                        'Match': bet['match'],
-                        'Market': bet['market'],
-                        'Individual_Probability': f"{bet['prob']*100:.1f}%",
-                        'League': bet['league'],
-                        'Date': date.today().isoformat()
-                    })
-            
-            csv_df = pd.DataFrame(csv_data)
-            csv_buffer = io.StringIO()
-            csv_df.to_csv(csv_buffer, index=False)
-            
-            st.download_button(
-                label="📥 Download Sets (CSV)",
-                data=csv_buffer.getvalue(),
-                file_name=f"betting_sets_{date.today().isoformat()}.csv",
-                mime="text/csv"
-            )
-    
-    st.markdown("---")
-
-#save button
 
 
 
